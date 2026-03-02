@@ -64,25 +64,7 @@
 
     // Demo dataset uses the internal item shape:
     // { id, name, minLevel, price, slot, power }
-    DEMO_ITEMS: [
-      { id: "w_wood_sword", name: "Wood Sword", minLevel: 1, price: 0, slot: "weapon", power: 2 },
-      { id: "w_iron_sword", name: "Iron Sword", minLevel: 5, price: 150, slot: "weapon", power: 12 },
-      { id: "w_mythril_blade", name: "Mythril Blade", minLevel: 20, price: 1400, slot: "weapon", power: 46 },
-
-      { id: "a_cloth", name: "Cloth Armor", minLevel: 1, price: 0, slot: "armor", power: 1 },
-      { id: "a_chainmail", name: "Chainmail", minLevel: 8, price: 240, slot: "armor", power: 10 },
-      { id: "a_dragonscale", name: "Dragonscale", minLevel: 25, price: 2100, slot: "armor", power: 52 },
-
-      { id: "h_leather_cap", name: "Leather Cap", minLevel: 1, price: 25, slot: "helmet", power: 2 },
-      { id: "h_steel_helm", name: "Steel Helm", minLevel: 10, price: 310, slot: "helmet", power: 11 },
-
-      { id: "r_copper", name: "Copper Ring", minLevel: 1, price: 40, slot: "ring", power: 2 },
-      { id: "r_sapphire", name: "Sapphire Ring", minLevel: 15, price: 520, slot: "ring", power: 16 },
-
-      { id: "am_ember", name: "Ember Amulet", minLevel: 12, price: 410, slot: "amulet", power: 14 },
-      { id: "b_travel", name: "Traveler Boots", minLevel: 1, price: 35, slot: "boots", power: 2 },
-      { id: "g_padded", name: "Padded Gloves", minLevel: 1, price: 30, slot: "gloves", power: 2 },
-    ],
+   
   };
 
   globalThisObj.SMMO_SCALER_CONFIG = CONFIG;
