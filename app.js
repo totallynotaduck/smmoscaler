@@ -294,6 +294,11 @@
     const cards = picked.map((it) => {
       const value = it.price > 0 ? it.power / it.price : it.power;
       const badgeText = it.price <= gold ? "Affordable" : "Over budget";
+      const idText = String(it.id ?? "");
+      const smmoDbUrl =
+        idText && /^[0-9]+$/.test(idText)
+          ? `https://smmo-db.com/items/show/${encodeURIComponent(idText)}`
+          : null;
       return `
         <div class="itemCard">
           <div>
@@ -303,9 +308,13 @@
               <span class="badge">${badgeText}</span>
             </div>
             <div class="itemSub">
-              <span class="kv"><span class="k">ID</span><span class="v">${escapeHtml(
-                it.id,
-              )}</span></span>
+              <span class="kv"><span class="k">ID</span><span class="v">${
+                smmoDbUrl
+                  ? `<a href="${smmoDbUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+                      idText,
+                    )}</a>`
+                  : escapeHtml(idText)
+              }</span></span>
               <span class="kv"><span class="k">Min level</span><span class="v">${formatNumber(
                 it.minLevel,
               )}</span></span>
@@ -504,12 +513,22 @@
       return demo.map(normalizeItem).filter(Boolean);
     }
 
-    if (config.FETCH_STRATEGY === "none") {
+    const strategy = String(config.FETCH_STRATEGY || "itemsEndpoint");
+
+    if (strategy === "none") {
       throw new Error("FETCH_STRATEGY is 'none'. Configure a strategy or enable USE_DEMO_DATA.");
     }
 
-    if (config.FETCH_STRATEGY !== "itemsEndpoint") {
-      throw new Error(`Unsupported FETCH_STRATEGY: ${String(config.FETCH_STRATEGY)}`);
+    if (strategy === "idsFromConfig") {
+      const ids = Array.isArray(config.ITEM_IDS) ? config.ITEM_IDS : [];
+      if (!ids.length) {
+        throw new Error("ITEM_IDS is empty. Add one or more item IDs in config.js or enable USE_DEMO_DATA.");
+      }
+      return await fetchItemDetailsByIds(ids);
+    }
+
+    if (strategy !== "itemsEndpoint") {
+      throw new Error(`Unsupported FETCH_STRATEGY: ${String(strategy)}`);
     }
 
     const endpoint = String(config.ITEMS_ENDPOINT || "/items");
