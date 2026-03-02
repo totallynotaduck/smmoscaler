@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SMMO Scaler</title>
+    <meta
+      name="description"
+      content="Find the best gear you can buy based on your level and gold."
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="brand">
+          <div class="logo" aria-hidden="true">S</div>
+          <div>
+            <h1>SMMO Scaler</h1>
+            <p class="subtitle">Best purchasable gear for your level + gold.</p>
+          </div>
+        </div>
+        <div class="meta">
+          <span class="pill" id="configStatus">Config: loading…</span>
+        </div>
+      </header>
+
+      <main class="card">
+        <form id="optimizerForm" class="form" novalidate>
+          <div class="grid">
+            <label class="field">
+              <span class="label">Player level</span>
+              <input
+                id="levelInput"
+                name="level"
+                inputmode="numeric"
+                type="number"
+                min="1"
+                step="1"
+                value="1"
+                required
+              />
+            </label>
+
+            <label class="field">
+              <span class="label">Available gold</span>
+              <input
+                id="goldInput"
+                name="gold"
+                inputmode="numeric"
+                type="number"
+                min="0"
+                step="1"
+                value="0"
+                required
+              />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="runButton" class="primary" type="submit">
+              Find Best Gear
+            </button>
+            <button id="resetButton" class="ghost" type="button">Reset</button>
+          </div>
+
+          <div class="hint">
+            <details>
+              <summary>How it works</summary>
+              <div class="hintBody">
+                <ul>
+                  <li>
+                    Fetches items from your configured API (or uses demo data by
+                    default).
+                  </li>
+                  <li>
+                    Filters to items you can use (level requirement) and afford
+                    (gold).
+                  </li>
+                  <li>
+                    Picks the best item per slot (by power, then by value).
+                  </li>
+                </ul>
+                <p class="hintNote">
+                  Configure the API in <code>config.js</code>. Make sure your
+                  key is public/read-only.
+                </p>
+              </div>
+            </details>
+          </div>
+        </form>
+
+        <section class="results">
+          <div class="statusRow">
+            <div id="status" class="status" role="status" aria-live="polite">
+              Ready.
+            </div>
+            <div class="statusActions">
+              <button id="copyButton" class="ghost small" type="button" disabled>
+                Copy summary
+              </button>
+            </div>
+          </div>
+
+          <div id="error" class="error" role="alert" hidden></div>
+
+          <div id="summary" class="summary" hidden>
+            <div class="summaryItem">
+              <div class="summaryLabel">Total cost</div>
+              <div class="summaryValue" id="totalCost">—</div>
+            </div>
+            <div class="summaryItem">
+              <div class="summaryLabel">Total power</div>
+              <div class="summaryValue" id="totalPower">—</div>
+            </div>
+            <div class="summaryItem">
+              <div class="summaryLabel">Slots filled</div>
+              <div class="summaryValue" id="slotsFilled">—</div>
+            </div>
+          </div>
+
+          <div id="resultsList" class="resultsList" hidden></div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>
+          Static site for GitHub Pages. Edit <code>config.js</code> to point at
+          your API.
+        </span>
+      </footer>
+    </div>
+
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
