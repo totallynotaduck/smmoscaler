@@ -129,17 +129,58 @@
 
           <div id="resultsList" class="resultsList" hidden></div>
         </section>
+
+        <section class="logger" aria-labelledby="loggerTitle">
+          <h2 id="loggerTitle" class="loggerTitle">Item log helper</h2>
+          <p class="loggerHelp">
+            Use your SimpleMMO public API key to automatically fetch item
+            details and append them to the local log. The tool will request up
+            to 40 new item IDs every minute, going through unlogged IDs in
+            order and avoiding duplicates.
+          </p>
+          <div class="loggerRow">
+            <label class="field loggerField">
+              <span class="label">Public API key for logging</span>
+              <input
+                id="loggerApiKeyInput"
+                name="loggerApiKey"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <div class="loggerButtons">
+              <button id="loggerStartButton" class="primary small" type="button">
+                Start logging
+              </button>
+              <button id="loggerExportButton" class="ghost small" type="button">
+                Download logs
+              </button>
+            </div>
+          </div>
+          <div
+            id="loggerStatus"
+            class="status loggerStatus"
+            role="status"
+            aria-live="polite"
+          >
+            Logger idle.
+          </div>
+        </section>
       </main>
 
       <footer class="footer">
         <span>
           Static site for GitHub Pages. Edit <code>config.js</code> to point at
-          your API.
+          your API. Maintain your item logs in <code>logs.js</code> and update
+          them with the item log helper.
         </span>
       </footer>
     </div>
 
+    <script src="./logs.js"></script>
     <script src="./config.js"></script>
     <script src="./app.js"></script>
+    <script src="./logger.js"></script>
   </body>
 </html>

@@ -53,11 +53,8 @@
     //
     // The optimizer will then use the returned minLevel/price/power values
     // to decide which items are best for a given level and gold budget.
-    // For safety, we only scan a small window of consecutive IDs at a time.
-    // This currently covers IDs 1–40; to continue ascending, change the
-    // starting offset (e.g. 41–80, 81–120, etc.) or generate this list
-    // offline and commit it as a shared log.
-    ITEM_IDS: Array.from({ length: 40 }, (_, i) => i + 1),
+    // Here we generate the range 1–175142 inclusive.
+    ITEM_IDS: Array.from({ length: 175142 }, (_, i) => i + 1),
 
     // When resolving items by ID, app.js will construct the URL from
     // ITEM_BY_ID_ENDPOINT. For SimpleMMO this matches the documented endpoint:

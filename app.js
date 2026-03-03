@@ -5,12 +5,7 @@
  */
 
 (function attachConfig(globalThisObj) {
-  const CONFIG = {
-    // If true, the app will NOT call any API and will use DEMO_ITEMS instead.
-    // Set this to false to use the real SimpleMMO API + your own item ID source.
-    // Now defaulting to false so the GitHub Pages deployment uses your configured
-    // public API key and real data.
-    USE_DEMO_DATA: false,
+
 
     // Base URL for your game API.
     // For SimpleMMO's public API this is typically:
