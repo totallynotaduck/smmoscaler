@@ -1,0 +1,60 @@
+[
+  {
+    "id": 1,
+    "fetchedAt": "2026-03-03T12:59:08.212Z",
+    "item": {
+      "id": 1,
+      "name": "Wooden Stick",
+      "type": "Weapon",
+      "description": "",
+      "equipable": "1",
+      "level": 1,
+      "rarity": "Common",
+      "value": 40,
+      "stat1": "str",
+      "stat1modifier": 1,
+      "stat2": null,
+      "stat2modifier": 0,
+      "stat3": null,
+      "stat3modifier": null,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": "619422",
+      "market": {
+        "low": 10805,
+        "high": 1111111111
+      },
+      "image_url": "/img/icons/W_Stick01.png"
+    }
+  },
+  {
+    "id": 2,
+    "fetchedAt": "2026-03-03T12:59:13.947Z",
+    "item": {
+      "id": 2,
+      "name": "Simple Dagger",
+      "type": "Weapon",
+      "description": "",
+      "equipable": "1",
+      "level": 1,
+      "rarity": "Common",
+      "value": 40,
+      "stat1": "str",
+      "stat1modifier": 2,
+      "stat2": null,
+      "stat2modifier": null,
+      "stat3": null,
+      "stat3modifier": null,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": "742142",
+      "market": {
+        "low": 4000,
+        "high": 2000000000
+      },
+      "image_url": "/img/icons/W_Dagger003.png"
+    }
+  }
+]

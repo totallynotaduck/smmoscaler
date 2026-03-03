@@ -114,11 +114,11 @@
 
           <div id="summary" class="summary" hidden>
             <div class="summaryItem">
-              <div class="summaryLabel">Total cost</div>
+              <div class="summaryLabel">Estimated Cost</div>
               <div class="summaryValue" id="totalCost">—</div>
             </div>
             <div class="summaryItem">
-              <div class="summaryLabel">Total power</div>
+              <div class="summaryLabel">Equipment Strength</div>
               <div class="summaryValue" id="totalPower">—</div>
             </div>
             <div class="summaryItem">
@@ -150,12 +150,16 @@
               />
             </label>
             <div class="loggerButtons">
-              <button id="loggerStartButton" class="primary small" type="button">
-                Start logging
-              </button>
-              <button id="loggerExportButton" class="ghost small" type="button">
-                Download logs
-              </button>
+                <button id="loggerStartButton" class="primary small" type="button">
+                  Start logging
+                </button>
+                <button id="loggerExportButton" class="ghost small" type="button">
+                  Download logs
+                </button>
+                <button id="loggerImportButton" class="ghost small" type="button">
+                  Import logs
+                </button>
+                <input id="loggerImportInput" type="file" accept="application/json" style="display:none" />
             </div>
           </div>
           <div
