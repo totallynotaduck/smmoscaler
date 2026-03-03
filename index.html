@@ -187,4 +187,194 @@
     <script src="./app.js"></script>
     <script src="./logger.js"></script>
   </body>
+</html><!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SMMO Scaler</title>
+    <meta
+      name="description"
+      content="Find the best gear you can buy based on your level and gold."
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="brand">
+          <div class="logo" aria-hidden="true">S</div>
+          <div>
+            <h1>SMMO Scaler</h1>
+            <p class="subtitle">Best purchasable gear for your level + gold.</p>
+          </div>
+        </div>
+        <div class="meta">
+          <span class="pill" id="configStatus">Config: loading…</span>
+        </div>
+      </header>
+
+      <main class="card">
+        <form id="optimizerForm" class="form" novalidate>
+          <div class="grid">
+            <label class="field">
+              <span class="label">Player level</span>
+              <input
+                id="levelInput"
+                name="level"
+                inputmode="numeric"
+                type="number"
+                min="1"
+                step="1"
+                value="1"
+                required
+              />
+            </label>
+
+            <label class="field">
+              <span class="label">Available gold</span>
+              <input
+                id="goldInput"
+                name="gold"
+                inputmode="numeric"
+                type="number"
+                min="0"
+                step="1"
+                value="0"
+                required
+              />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="runButton" class="primary" type="submit">
+              Find Best Gear
+            </button>
+            <button id="resetButton" class="ghost" type="button">Reset</button>
+          </div>
+
+          <div class="hint">
+            <details>
+              <summary>How it works</summary>
+              <div class="hintBody">
+                <ul>
+                  <li>
+                    Fetches items from your configured API (or uses demo data by
+                    default).
+                  </li>
+                  <li>
+                    Filters to items you can use (level requirement) and afford
+                    (gold).
+                  </li>
+                  <li>
+                    Picks the best item per slot (by power, then by value).
+                  </li>
+                </ul>
+                <p class="hintNote">
+                  Configure the API in <code>config.js</code>. Make sure your
+                  key is public/read-only.
+                </p>
+              </div>
+            </details>
+          </div>
+        </form>
+
+        <section class="results">
+          <div class="statusRow">
+            <div id="status" class="status" role="status" aria-live="polite">
+              Ready.
+            </div>
+            <div class="statusActions">
+              <button id="copyButton" class="ghost small" type="button" disabled>
+                Copy summary
+              </button>
+            </div>
+          </div>
+
+          <div id="error" class="error" role="alert" hidden></div>
+
+          <div id="summary" class="summary" hidden>
+            <div class="summaryItem">
+              <div class="summaryLabel">Estimated Cost</div>
+              <div class="summaryValue" id="totalCost">—</div>
+            </div>
+            <div class="summaryItem">
+              <div class="summaryLabel">Equipment Strength</div>
+              <div class="summaryValue" id="totalPower">—</div>
+            </div>
+            <div class="summaryItem">
+              <div class="summaryLabel">Slots filled</div>
+              <div class="summaryValue" id="slotsFilled">—</div>
+            </div>
+          </div>
+
+          <div id="resultsList" class="resultsList" hidden></div>
+        </section>
+
+        <section class="logger" aria-labelledby="loggerTitle">
+          <h2 id="loggerTitle" class="loggerTitle">Item log helper</h2>
+          <p class="loggerHelp">
+            Use your SimpleMMO public API key to automatically fetch item
+            details and append them to the local log. The tool will request up
+            to 40 new item IDs every minute, going through unlogged IDs in
+            order and avoiding duplicates.
+          </p>
+          <div class="loggerRow">
+            <label class="field loggerField">
+              <span class="label">Public API key for logging</span>
+              <input
+                id="loggerApiKeyInput"
+                name="loggerApiKey"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <div class="loggerButtons">
+                <button id="loggerStartButton" class="primary small" type="button">
+                  Start logging
+                </button>
+                <button id="loggerExportButton" class="ghost small" type="button">
+                  Download logs
+                </button>
+                <button id="loggerImportButton" class="ghost small" type="button">
+                  Import logs
+                </button>
+                <input id="loggerImportInput" type="file" accept="application/json" style="display:none" />
+            </div>
+          </div>
+          <div
+            id="loggerStatus"
+            class="status loggerStatus"
+            role="status"
+            aria-live="polite"
+          >
+            Logger idle.
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>
+          Static site for GitHub Pages. Edit <code>config.js</code> to point at
+          your API. Maintain your item logs in <code>logs.js</code> and update
+          them with the item log helper.
+        </span>
+      </footer>
+    </div>
+
+    <script src="./logs.js"></script>
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+    <script src="./logger.js"></script>
+  </body>
+
 </html>
