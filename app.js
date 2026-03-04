@@ -27,6 +27,13 @@
     if (CONFIG) configStatus.textContent = 'Config loaded';
     else configStatus.textContent = 'Config missing — using demo data';
 
+    // Debug: log config and initial state
+    console.log('SMMO Scaler initialized', { 
+      CONFIG: CONFIG ? 'loaded' : 'missing',
+      logsAvailable: !!window.SMMO_ITEM_LOGS,
+      logsCount: (window.SMMO_ITEM_LOGS || []).length
+    });
+
     function normalizeItem(raw) {
       if (!raw) return null;
       const id = raw.id || raw.item_id || raw.itemId || raw._id || String(raw.id || raw.item_id || raw.itemId || '');
@@ -65,113 +72,132 @@
 
     runButton.addEventListener('click', (ev) => {
       ev.preventDefault();
-      statusEl.textContent = 'Computing…';
-      const level = Number(levelInput.value) || 1;
-      const gold = Number(goldInput.value) || 0;
-      // Prefer logs if present (populated by logger.js). Logged entries may
-      // include an `item` object from the API; normalize if so.
-      const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
-      let items = [];
-      if (rawLogs.length > 0) {
-        // Normalize items from logs, filtering out nulls (which are 404 entries)
-        items = rawLogs
-          .map(l => l.item ? normalizeItem(l.item) : null)
-          .filter(it => it !== null);
-        configStatus.textContent = `Using ${items.length} items from logs (${rawLogs.length} total entries)`;
-      } else {
-        items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
+      try {
+        statusEl.textContent = 'Computing…';
+        const level = Number(levelInput.value) || 1;
+        const gold = Number(goldInput.value) || 0;
+        // Prefer logs if present (populated by logger.js). Logged entries may
+        // include an `item` object from the API; normalize if so.
+        const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
+        let items = [];
+        if (rawLogs.length > 0) {
+          // Normalize items from logs, filtering out nulls (which are 404 entries)
+          items = rawLogs
+            .map(l => l.item ? normalizeItem(l.item) : null)
+            .filter(it => it !== null);
+          configStatus.textContent = `Using ${items.length} items from logs (${rawLogs.length} total entries)`;
+        } else {
+          items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
+        }
+
+        console.log('Loaded items for filtering', { rawLogsCount: rawLogs.length, normalizedCount: items.length, level, gold });
+
+        // Filter items: must have level requirement met AND must have a cost
+        // (marketLow preferred, falls back to price). Blank/404 items are skipped.
+        const usable = items.filter(it => {
+          if (!it || !it.id) return false;
+          // Use marketLow if available, fallback to price
+          const cost = it.marketLow != null ? it.marketLow : (it.price != null ? it.price : null);
+          if (cost == null) return false;
+          return (it.minLevel || 0) <= level && cost <= gold;
+        });
+
+        console.log('Filtered to usable items', { usableCount: usable.length, level, gold });
+
+        // Calculate cost and bestValue for each usable item
+        usable.forEach(it => {
+          const cost = it.marketLow != null ? it.marketLow : it.price;
+          it.cost = cost;
+          it.bestValue = cost > 0 ? it.power / cost : 0;
+        });
+
+        // For the new behaviour we simply list every usable item instead of
+        // picking the single best per slot.  The summary is simplified to show
+        // the count and a couple of aggregate values.
+        const totalItems = usable.length;
+        const estimatedCost = usable.reduce((s, i) => s + (i.cost || 0), 0);
+        const maxPower = usable.reduce((m, i) => Math.max(m, i.power || 0), 0);
+        const maxValue = usable.reduce((m, i) => Math.max(m, i.bestValue || 0), 0);
+
+        totalCost.textContent = estimatedCost;
+        totalPower.textContent = maxPower.toFixed(1);
+        bestValue.textContent = maxValue.toFixed(4);
+        slotsFilled.textContent = totalItems;
+
+        sortButton.disabled = false;
+        renderResults(usable);
+      } catch (e) {
+        console.error('Error in calculator:', e);
+        statusEl.textContent = `Error: ${e.message || e}`;
       }
-
-      // Filter items: must have level requirement met AND must have a cost
-      // (marketLow preferred, falls back to price). Blank/404 items are skipped.
-      const usable = items.filter(it => {
-        if (!it || !it.id) return false;
-        // Use marketLow if available, fallback to price
-        const cost = it.marketLow != null ? it.marketLow : (it.price != null ? it.price : null);
-        if (cost == null) return false;
-        return (it.minLevel || 0) <= level && cost <= gold;
-      });
-
-      // Calculate cost and bestValue for each usable item
-      usable.forEach(it => {
-        const cost = it.marketLow != null ? it.marketLow : it.price;
-        it.cost = cost;
-        it.bestValue = cost > 0 ? it.power / cost : 0;
-      });
-
-      // For the new behaviour we simply list every usable item instead of
-      // picking the single best per slot.  The summary is simplified to show
-      // the count and a couple of aggregate values.
-      const totalItems = usable.length;
-      const estimatedCost = usable.reduce((s, i) => s + (i.cost || 0), 0);
-      const maxPower = usable.reduce((m, i) => Math.max(m, i.power || 0), 0);
-      const maxValue = usable.reduce((m, i) => Math.max(m, i.bestValue || 0), 0);
-
-      totalCost.textContent = estimatedCost;
-      totalPower.textContent = maxPower.toFixed(1);
-      bestValue.textContent = maxValue.toFixed(4);
-      slotsFilled.textContent = totalItems;
-
-      sortButton.disabled = false;
-      renderResults(usable);
     });
 
     function renderResults(usable) {
-      resultsList.innerHTML = '';
-      if (usable.length === 0) {
-        resultsList.hidden = true;
-        summary.hidden = true;
-        statusEl.textContent = 'No items match the criteria.';
-      } else {
-        summary.hidden = false;
-        resultsList.hidden = false;
-        // Sort by current sortBy mode
-        if (sortBy === 'power') {
-          usable.sort((a, b) => b.power - a.power);
+      try {
+        resultsList.innerHTML = '';
+        if (usable.length === 0) {
+          resultsList.hidden = true;
+          summary.hidden = true;
+          statusEl.textContent = 'No items match the criteria.';
         } else {
-          // Sort by bestValue descending
-          usable.sort((a, b) => b.bestValue - a.bestValue);
+          summary.hidden = false;
+          resultsList.hidden = false;
+          // Sort by current sortBy mode
+          if (sortBy === 'power') {
+            usable.sort((a, b) => b.power - a.power);
+          } else {
+            // Sort by bestValue descending
+            usable.sort((a, b) => b.bestValue - a.bestValue);
+          }
+          for (const it of usable) {
+            const div = document.createElement('div');
+            div.className = 'resultItem';
+            const valueDisplay = (it.bestValue != null) ? it.bestValue.toFixed(4) : '—';
+            div.textContent = `${it.slot}: ${it.name} (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`;
+            resultsList.appendChild(div);
+          }
+          statusEl.textContent = 'Ready.';
         }
-        for (const it of usable) {
-          const div = document.createElement('div');
-          div.className = 'resultItem';
-          const valueDisplay = (it.bestValue != null) ? it.bestValue.toFixed(4) : '—';
-          div.textContent = `${it.slot}: ${it.name} (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`;
-          resultsList.appendChild(div);
-        }
-        statusEl.textContent = 'Ready.';
+      } catch (e) {
+        console.error('Error rendering results:', e);
+        statusEl.textContent = `Render error: ${e.message || e}`;
       }
     }
 
     sortButton.addEventListener('click', () => {
-      // Toggle between power and value sort
-      sortBy = sortBy === 'power' ? 'value' : 'power';
-      const label = sortBy === 'power' ? 'Sort by: Power' : 'Sort by: Value';
-      sortButton.textContent = label;
-      // Re-render with new sort
-      const level = Number(levelInput.value) || 1;
-      const gold = Number(goldInput.value) || 0;
-      const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
-      let items = [];
-      if (rawLogs.length > 0) {
-        items = rawLogs
-          .map(l => l.item ? normalizeItem(l.item) : null)
-          .filter(it => it !== null);
-      } else {
-        items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
+      try {
+        // Toggle between power and value sort
+        sortBy = sortBy === 'power' ? 'value' : 'power';
+        const label = sortBy === 'power' ? 'Sort by: Power' : 'Sort by: Value';
+        sortButton.textContent = label;
+        // Re-render with new sort
+        const level = Number(levelInput.value) || 1;
+        const gold = Number(goldInput.value) || 0;
+        const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
+        let items = [];
+        if (rawLogs.length > 0) {
+          items = rawLogs
+            .map(l => l.item ? normalizeItem(l.item) : null)
+            .filter(it => it !== null);
+        } else {
+          items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
+        }
+        const usable = items.filter(it => {
+          if (!it || !it.id) return false;
+          const cost = it.marketLow != null ? it.marketLow : (it.price != null ? it.price : null);
+          if (cost == null) return false;
+          return (it.minLevel || 0) <= level && cost <= gold;
+        });
+        usable.forEach(it => {
+          const cost = it.marketLow != null ? it.marketLow : it.price;
+          it.cost = cost;
+          it.bestValue = cost > 0 ? it.power / cost : 0;
+        });
+        renderResults(usable);
+      } catch (e) {
+        console.error('Error in sort button:', e);
+        statusEl.textContent = `Sort error: ${e.message || e}`;
       }
-      const usable = items.filter(it => {
-        if (!it || !it.id) return false;
-        const cost = it.marketLow != null ? it.marketLow : (it.price != null ? it.price : null);
-        if (cost == null) return false;
-        return (it.minLevel || 0) <= level && cost <= gold;
-      });
-      usable.forEach(it => {
-        const cost = it.marketLow != null ? it.marketLow : it.price;
-        it.cost = cost;
-        it.bestValue = cost > 0 ? it.power / cost : 0;
-      });
-      renderResults(usable);
     });
   });
 
