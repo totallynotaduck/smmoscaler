@@ -52,7 +52,7 @@
       let ids = [];
       if (Array.isArray(config.ITEM_IDS) && config.ITEM_IDS.length > 0) ids = config.ITEM_IDS.slice();
       else {
-        for (let i = 1; i <= 175142; i++) ids.push(i);
+        for (let i = 1; i <= 999000; i++) ids.push(i);
       }
 
       const logs = global.SMMO_ITEM_LOGS || [];
@@ -182,7 +182,7 @@
           }
         }
 
-        try { await sleep(1500); } catch (e) { /* ignore */ }
+        try { await sleep(2000); } catch (e) { /* ignore */ }
       }
 
       running = false;
