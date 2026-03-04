@@ -185,7 +185,17 @@
               const iconContainer = document.createElement('div');
               iconContainer.className = 'itemIcon';
               const iconImg = document.createElement('img');
-              iconImg.src = it.image_url || '/img/icons/default.png';
+              // Use image_url from logs if available, otherwise construct from item ID
+              // Always prefix with https://web.simple-mmo.com for complete URLs
+              let imageUrl = '/img/icons/default.png';
+              if (it.image_url) {
+                // Add prefix to existing image_url from logs
+                imageUrl = `https://web.simple-mmo.com${it.image_url}`;
+              } else if (it.id) {
+                // Construct URL using item ID
+                imageUrl = `https://web.simple-mmo.com/item/inspect/${it.id}`;
+              }
+              iconImg.src = imageUrl;
               iconImg.alt = '';
               iconImg.title = it.name;
               iconContainer.appendChild(iconImg);
