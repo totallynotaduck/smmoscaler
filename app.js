@@ -180,7 +180,13 @@
               const div = document.createElement('div');
               div.className = 'resultItem';
               const valueDisplay = (it.bestValue != null) ? it.bestValue.toFixed(4) : '—';
-              div.textContent = `${it.name} (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`;
+              const link = document.createElement('a');
+              link.href = `https://web.simple-mmo.com/item/inspect/${it.id}`;
+              link.textContent = it.name;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              div.appendChild(link);
+              div.appendChild(document.createTextNode(` (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`));
               resultsList.appendChild(div);
             }
           }
