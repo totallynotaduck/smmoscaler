@@ -160,8 +160,26 @@
           added++;
           status.textContent = `Added ${added} items — last ${idStr} (auth: ${attemptResult.used || 'unknown'})`;
         } else {
-          console.warn('Fetch failed for', idStr, attemptResult.error);
-          status.textContent = `Fetch error for ${idStr}: ${attemptResult.error && attemptResult.error.message ? attemptResult.error.message : attemptResult.error}`;
+          // If the only failure was a 404 Not Found, treat it as "nonexistent" and
+          // record it so we don't keep retrying the same ID.  This satisfies the
+          // requirement of skipping missing items without spamming the console or
+          // aborting the whole run.
+          const msg = attemptResult.error && attemptResult.error.message ? attemptResult.error.message : String(attemptResult.error);
+          if (msg.includes('HTTP 404')) {
+            // push an entry with no item (could also mark with special flag) so that
+            // the ID counts as existing and won't be requested again.
+            const entry = { id: id, fetchedAt: new Date().toISOString(), item: null };
+            if (global.SMMO_LOGS && typeof global.SMMO_LOGS.push === 'function') {
+              global.SMMO_LOGS.push(entry);
+            } else {
+              logs.push(entry);
+              global.SMMO_ITEM_LOGS = logs;
+            }
+            status.textContent = `Item ${idStr} not found – skipping`;
+          } else {
+            console.warn('Fetch failed for', idStr, attemptResult.error);
+            status.textContent = `Fetch error for ${idStr}: ${msg}`;
+          }
         }
 
         try { await sleep(1500); } catch (e) { /* ignore */ }

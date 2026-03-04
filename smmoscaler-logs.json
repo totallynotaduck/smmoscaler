@@ -1,7 +1,7 @@
 [
   {
     "id": 1,
-    "fetchedAt": "2026-03-03T12:59:08.212Z",
+    "fetchedAt": "2026-03-03T14:16:16.508Z",
     "item": {
       "id": 1,
       "name": "Wooden Stick",
@@ -20,7 +20,7 @@
       "custom_item": 0,
       "tradable": 1,
       "locked": 0,
-      "circulation": "619422",
+      "circulation": "619418",
       "market": {
         "low": 10805,
         "high": 1111111111
@@ -55,6 +55,253 @@
         "high": 2000000000
       },
       "image_url": "/img/icons/W_Dagger003.png"
+    }
+  },
+  {
+    "id": 6,
+    "fetchedAt": "2026-03-03T14:07:47.893Z",
+    "item": {
+      "id": 6,
+      "name": "Bootleg T-Shirt",
+      "type": "Armour",
+      "description": "",
+      "equipable": "1",
+      "level": 1,
+      "rarity": "Common",
+      "value": 40,
+      "stat1": "def",
+      "stat1modifier": 1,
+      "stat2": "",
+      "stat2modifier": 0,
+      "stat3": "",
+      "stat3modifier": 0,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": "393571",
+      "market": {
+        "low": 499,
+        "high": 2000000000
+      },
+      "image_url": "/img/icons/A_Clothing01.png"
+    }
+  },
+  {
+    "id": 7,
+    "fetchedAt": "2026-03-03T14:07:52.810Z",
+    "item": {
+      "id": 7,
+      "name": "Carrot",
+      "type": "Food",
+      "description": "",
+      "equipable": "0",
+      "level": 1,
+      "rarity": "Common",
+      "value": 40,
+      "stat1": "hp",
+      "stat1modifier": 5,
+      "stat2": null,
+      "stat2modifier": null,
+      "stat3": null,
+      "stat3modifier": null,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": "755122",
+      "market": {
+        "low": 250,
+        "high": 1000000000
+      },
+      "image_url": "/img/icons/I_C_Carrot.png"
+    }
+  },
+  {
+    "id": 8,
+    "fetchedAt": "2026-03-03T14:07:58.045Z",
+    "item": {
+      "id": 8,
+      "name": "Horrible Dagger",
+      "type": "Weapon",
+      "description": "",
+      "equipable": "1",
+      "level": 1,
+      "rarity": "Uncommon",
+      "value": 60,
+      "stat1": "str",
+      "stat1modifier": 2,
+      "stat2": null,
+      "stat2modifier": null,
+      "stat3": null,
+      "stat3modifier": null,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": 134769,
+      "market": {
+        "low": 12000,
+        "high": 1000000000
+      },
+      "image_url": "/img/icons/W_Dagger004.png"
+    }
+  },
+  {
+    "id": 9,
+    "fetchedAt": "2026-03-03T14:08:03.584Z",
+    "item": {
+      "id": 9,
+      "name": "Simple Sword",
+      "type": "Weapon",
+      "description": "",
+      "equipable": "1",
+      "level": 1,
+      "rarity": "Common",
+      "value": 40,
+      "stat1": "str",
+      "stat1modifier": 5,
+      "stat2": null,
+      "stat2modifier": null,
+      "stat3": null,
+      "stat3modifier": null,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": 238835,
+      "market": {
+        "low": 10500,
+        "high": 2000000000
+      },
+      "image_url": "/img/icons/W_Sword001.png"
+    }
+  },
+  {
+    "id": 10,
+    "fetchedAt": "2026-03-03T14:09:37.635Z",
+    "item": {
+      "id": 10,
+      "name": "Curved Sword",
+      "type": "Weapon",
+      "description": "",
+      "equipable": "1",
+      "level": 2,
+      "rarity": "Uncommon",
+      "value": 120,
+      "stat1": "str",
+      "stat1modifier": 6,
+      "stat2": null,
+      "stat2modifier": null,
+      "stat3": null,
+      "stat3modifier": null,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": 129659,
+      "market": {
+        "low": 12500,
+        "high": 500000001
+      },
+      "image_url": "/img/icons/W_Sword013.png"
+    }
+  },
+  {
+    "id": 11,
+    "fetchedAt": "2026-03-03T14:09:43.120Z",
+    "item": {
+      "id": 11,
+      "name": "Wooden Bow",
+      "type": "Weapon",
+      "description": "",
+      "equipable": "1",
+      "level": 2,
+      "rarity": "Uncommon",
+      "value": 120,
+      "stat1": "str",
+      "stat1modifier": 7,
+      "stat2": null,
+      "stat2modifier": null,
+      "stat3": null,
+      "stat3modifier": null,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": "133157",
+      "market": {
+        "low": 15800,
+        "high": 2000000000
+      },
+      "image_url": "/img/icons/W_Bow01.png"
+    }
+  },
+  {
+    "id": 12,
+    "fetchedAt": "2026-03-03T14:09:48.452Z",
+    "item": {
+      "id": 12,
+      "name": "Bandit Bow",
+      "type": "Weapon",
+      "description": "",
+      "equipable": "1",
+      "level": 2,
+      "rarity": "Uncommon",
+      "value": 120,
+      "stat1": "str",
+      "stat1modifier": 11,
+      "stat2": null,
+      "stat2modifier": null,
+      "stat3": null,
+      "stat3modifier": null,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": "132843",
+      "market": {
+        "low": 18999,
+        "high": 2000000000
+      },
+      "image_url": "/img/icons/W_Bow04.png"
+    }
+  },
+  {
+    "id": 3,
+    "fetchedAt": "2026-03-03T14:16:43.575Z",
+    "item": null
+  },
+  {
+    "id": 4,
+    "fetchedAt": "2026-03-03T14:16:49.077Z",
+    "item": null
+  },
+  {
+    "id": 5,
+    "fetchedAt": "2026-03-03T14:16:56.650Z",
+    "item": null
+  },
+  {
+    "id": 13,
+    "fetchedAt": "2026-03-03T14:17:01.864Z",
+    "item": {
+      "id": 13,
+      "name": "Blade of the South",
+      "type": "Weapon",
+      "description": "",
+      "equipable": "1",
+      "level": 3,
+      "rarity": "Uncommon",
+      "value": 180,
+      "stat1": "str",
+      "stat1modifier": 13,
+      "stat2": null,
+      "stat2modifier": null,
+      "stat3": null,
+      "stat3modifier": null,
+      "custom_item": 0,
+      "tradable": 1,
+      "locked": 0,
+      "circulation": "142468",
+      "market": {
+        "low": 10099,
+        "high": 2000000000
+      },
+      "image_url": "/img/icons/W_Sword005.png"
     }
   }
 ]
