@@ -68,6 +68,7 @@
         slot,
         power: power,
         marketLow: marketLow == null ? null : Number(marketLow),
+        image_url: raw.image_url || raw.imageUrl || raw.icon || null,
       };
     }
 
@@ -179,14 +180,30 @@
             for (const it of top5) {
               const div = document.createElement('div');
               div.className = 'resultItem';
+              
+              // Create icon container
+              const iconContainer = document.createElement('div');
+              iconContainer.className = 'itemIcon';
+              const iconImg = document.createElement('img');
+              iconImg.src = it.image_url || '/img/icons/default.png';
+              iconImg.alt = '';
+              iconImg.title = it.name;
+              iconContainer.appendChild(iconImg);
+              
+              // Create text container
+              const textContainer = document.createElement('div');
+              textContainer.className = 'itemText';
               const valueDisplay = (it.bestValue != null) ? it.bestValue.toFixed(4) : '—';
               const link = document.createElement('a');
               link.href = `https://web.simple-mmo.com/item/inspect/${it.id}`;
               link.textContent = it.name;
               link.target = '_blank';
               link.rel = 'noopener noreferrer';
-              div.appendChild(link);
-              div.appendChild(document.createTextNode(` (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`));
+              textContainer.appendChild(link);
+              textContainer.appendChild(document.createTextNode(` (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`));
+              
+              div.appendChild(iconContainer);
+              div.appendChild(textContainer);
               resultsList.appendChild(div);
             }
           }
