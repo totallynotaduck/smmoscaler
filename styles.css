@@ -148,6 +148,57 @@ h1 {
   gap: 6px;
 }
 
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  position: relative;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+input[type="checkbox"]:checked {
+  background: linear-gradient(135deg, rgba(110, 231, 255, 0.35), rgba(167, 139, 250, 0.3));
+  border-color: rgba(110, 231, 255, 0.6);
+}
+
+input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 800;
+}
+
+input[type="checkbox"]:hover {
+  border-color: rgba(110, 231, 255, 0.5);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+input[type="checkbox"]:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(110, 231, 255, 0.15);
+}
+
 .label {
   color: var(--muted);
   font-size: 13px;
@@ -451,4 +502,53 @@ summary {
   color: var(--faint);
   font-size: 12px;
   text-align: center;
+}
+
+/* Unavailable items folding menu */
+.unavailableSection {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.unavailableSummary {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  margin-bottom: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.unavailableSummary:hover {
+  color: var(--accent);
+}
+
+.unavailableContent {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.unavailableSection[open] .unavailableContent {
+  margin-top: 12px;
+}
+
+/* Details/Summary styling */
+details {
+  outline: none;
+}
+
+summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary::marker {
+  display: none;
 }

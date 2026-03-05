@@ -43,6 +43,7 @@
       const price = raw.price || raw.cost || raw.gold || 0;
       const slot = raw.slot || raw.type || raw.category || 'unknown';
       const rarity = raw.rarity || raw.rarity_name || raw.rarityName || raw.item_rarity || raw.itemRarity || null;
+      const custom_item = raw.custom_item || raw.customItem || raw.is_custom || raw.isCustom || null;
       
       // market-low can be named with hyphen or underscore in logs, or nested under market.low
       const marketLow = raw['market-low'] || raw.market_low || raw.marketLow || (raw.market && raw.market.low) || null;
@@ -60,8 +61,8 @@
         if (statName === 'str') power += modifier * 1;
         else if (statName === 'def') power += modifier * 0.3;
         else if (statName === 'crit' && includeCritBonus) {
-          // Formula: (Crit value/10) x player input level x 2
-          power += (modifier / 10) * playerLevel * 2;
+          // Formula: Player Level x 2 x Crit Value/1000
+          power += playerLevel * 2 * (modifier / 1000);
         }
       }
       
@@ -72,6 +73,7 @@
         price: Number(price),
         slot,
         rarity,
+        custom_item,
         power: power,
         marketLow: marketLow == null ? null : Number(marketLow),
         image_url: raw.image_url || raw.imageUrl || raw.icon || null,
@@ -132,12 +134,48 @@
         // picking the single best per slot.  The summary is simplified to show
         // the count and a couple of aggregate values.
         const totalItems = availableItems.length;
-        const estimatedCost = availableItems.reduce((s, i) => s + (i.cost || 0), 0);
-        const maxPower = availableItems.reduce((m, i) => Math.max(m, i.power || 0), 0);
-        const maxValue = availableItems.reduce((m, i) => Math.max(m, i.bestValue || 0), 0);
+        
+        // Calculate estimated cost by only counting the first item's cost for each item type
+        const itemTypes = {};
+        let estimatedCost = 0;
+        for (const item of availableItems) {
+          if (!itemTypes[item.slot]) {
+            itemTypes[item.slot] = true;
+            estimatedCost += (item.cost || 0);
+          }
+        }
+        
+        // Calculate equipment strength by summing the highest item power for each item type
+        const equipmentStrength = {};
+        let totalEquipmentStrength = 0;
+        for (const item of availableItems) {
+          if (!equipmentStrength[item.slot] || item.power > equipmentStrength[item.slot]) {
+            // Update to the highest power found for this slot
+            if (equipmentStrength[item.slot]) {
+              // Subtract the previous power value since we're replacing it
+              totalEquipmentStrength -= equipmentStrength[item.slot];
+            }
+            equipmentStrength[item.slot] = item.power;
+            totalEquipmentStrength += item.power;
+          }
+        }
+        
+        // Calculate max values based on current sort mode
+        let maxPower = 0;
+        let maxValue = 0;
+        
+        if (sortBy === 'power') {
+          // When sorting by power, show max power and max value
+          maxPower = availableItems.reduce((m, i) => Math.max(m, i.power || 0), 0);
+          maxValue = availableItems.reduce((m, i) => Math.max(m, i.bestValue || 0), 0);
+        } else {
+          // When sorting by value, show max value and max power
+          maxValue = availableItems.reduce((m, i) => Math.max(m, i.bestValue || 0), 0);
+          maxPower = availableItems.reduce((m, i) => Math.max(m, i.power || 0), 0);
+        }
 
         totalCost.textContent = estimatedCost;
-        totalPower.textContent = maxPower.toFixed(1);
+        totalPower.textContent = totalEquipmentStrength.toFixed(1);
         bestValue.textContent = maxValue.toFixed(4);
         slotsFilled.textContent = totalItems;
 
@@ -161,9 +199,27 @@
           resultsList.hidden = false;
           
           // Filter out interesting item types from main output
-          const interestingTypes = ['Collectable', 'Tome', 'Avatar', 'Item Sprite'];
-          const mainAvailableItems = availableItems.filter(it => !interestingTypes.includes(it.slot));
-          const mainUnavailableItems = unavailableItems.filter(it => !interestingTypes.includes(it.slot));
+          const interestingTypes = ['Collectable', 'Tome', 'Avatar', 'Item Sprite', 'Grenade', 'Food'];
+          const mainAvailableItems = availableItems.filter(it => !interestingTypes.includes(it.slot) && !it.custom_item);
+          const mainUnavailableItems = unavailableItems.filter(it => !interestingTypes.includes(it.slot) && !it.custom_item);
+          
+          // Calculate equipment strength based on current sort mode using mainAvailableItems
+          const equipmentStrength = {};
+          let totalEquipmentStrength = 0;
+          for (const item of mainAvailableItems) {
+            if (!equipmentStrength[item.slot] || item.power > equipmentStrength[item.slot]) {
+              // Update to the highest power found for this slot
+              if (equipmentStrength[item.slot]) {
+                // Subtract the previous power value since we're replacing it
+                totalEquipmentStrength -= equipmentStrength[item.slot];
+              }
+              equipmentStrength[item.slot] = item.power;
+              totalEquipmentStrength += item.power;
+            }
+          }
+          
+          // Update the display with the calculated equipment strength
+          totalPower.textContent = totalEquipmentStrength.toFixed(1);
           
           // Render available items (cost > 0) - excluding interesting types
           if (mainAvailableItems.length > 0) {
@@ -263,11 +319,20 @@
           
           // Render unavailable items section (cost = 0) - excluding interesting types
           if (mainUnavailableItems.length > 0) {
-            // Add unavailable section header
-            const unavailableHeader = document.createElement('div');
-            unavailableHeader.className = 'unavailableHeader';
-            unavailableHeader.textContent = `Unavailable (${mainUnavailableItems.length} items)`;
-            resultsList.appendChild(unavailableHeader);
+            // Create folding menu for unavailable items
+            const unavailableSection = document.createElement('details');
+            unavailableSection.className = 'unavailableSection';
+            
+            const unavailableSummary = document.createElement('summary');
+            unavailableSummary.className = 'unavailableSummary';
+            unavailableSummary.textContent = `Unavailable (${mainUnavailableItems.length} items)`;
+            unavailableSection.appendChild(unavailableSummary);
+            
+            const unavailableContent = document.createElement('div');
+            unavailableContent.className = 'unavailableContent';
+            unavailableSection.appendChild(unavailableContent);
+            
+            resultsList.appendChild(unavailableSection);
             
             // Group unavailable items by slot and get top 5 for each slot
             const unavailableSlots = {};
@@ -295,7 +360,7 @@
               const slotHeader = document.createElement('div');
               slotHeader.className = 'slotHeader';
               slotHeader.textContent = `${slotName} (${top5.length} items)`;
-              resultsList.appendChild(slotHeader);
+              unavailableContent.appendChild(slotHeader);
               
               // Add items for this slot
               for (const it of top5) {
@@ -346,14 +411,14 @@
                 
                 div.appendChild(iconContainer);
                 div.appendChild(textContainer);
-                resultsList.appendChild(div);
+                unavailableContent.appendChild(div);
               }
             }
           }
           
           // Render interesting items section
-          const interestingAvailableItems = availableItems.filter(it => interestingTypes.includes(it.slot));
-          const interestingUnavailableItems = unavailableItems.filter(it => interestingTypes.includes(it.slot));
+          const interestingAvailableItems = availableItems.filter(it => interestingTypes.includes(it.slot) || it.custom_item);
+          const interestingUnavailableItems = unavailableItems.filter(it => interestingTypes.includes(it.slot) || it.custom_item);
           renderInterestingItems(interestingAvailableItems, interestingUnavailableItems);
           
           statusEl.textContent = 'Ready.';
@@ -512,6 +577,49 @@
         // Separate items with estimated cost of 0 (unavailable) from others
         const unavailableItems = usable.filter(it => (it.cost || 0) === 0);
         const availableItems = usable.filter(it => (it.cost || 0) > 0);
+        
+        // Calculate estimated cost by only counting the first item's cost for each item type
+        const itemTypes = {};
+        let estimatedCost = 0;
+        for (const item of availableItems) {
+          if (!itemTypes[item.slot]) {
+            itemTypes[item.slot] = true;
+            estimatedCost += (item.cost || 0);
+          }
+        }
+        
+        // Calculate equipment strength by summing the highest item power for each item type
+        const equipmentStrength = {};
+        let totalEquipmentStrength = 0;
+        for (const item of availableItems) {
+          if (!equipmentStrength[item.slot] || item.power > equipmentStrength[item.slot]) {
+            // Update to the highest power found for this slot
+            if (equipmentStrength[item.slot]) {
+              // Subtract the previous power value since we're replacing it
+              totalEquipmentStrength -= equipmentStrength[item.slot];
+            }
+            equipmentStrength[item.slot] = item.power;
+            totalEquipmentStrength += item.power;
+          }
+        }
+        
+        // Calculate max values based on current sort mode
+        let maxPower = 0;
+        let maxValue = 0;
+        
+        if (sortBy === 'power') {
+          // When sorting by power, show max power and max value
+          maxPower = availableItems.reduce((m, i) => Math.max(m, i.power || 0), 0);
+          maxValue = availableItems.reduce((m, i) => Math.max(m, i.bestValue || 0), 0);
+        } else {
+          // When sorting by value, show max value and max power
+          maxValue = availableItems.reduce((m, i) => Math.max(m, i.bestValue || 0), 0);
+          maxPower = availableItems.reduce((m, i) => Math.max(m, i.power || 0), 0);
+        }
+
+        totalCost.textContent = estimatedCost;
+        totalPower.textContent = totalEquipmentStrength.toFixed(1);
+        bestValue.textContent = maxValue.toFixed(4);
         
         renderResults(availableItems, unavailableItems);
       } catch (e) {
