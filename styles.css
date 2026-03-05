@@ -78,12 +78,10 @@ code {
   width: 44px;
   height: 44px;
   border-radius: 14px;
-  display: grid;
-  place-items: center;
-  background:
-    linear-gradient(135deg, rgba(110, 231, 255, 0.9), rgba(167, 139, 250, 0.9));
-  color: #071018;
-  font-weight: 800;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+  border: 1px solid var(--border);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
