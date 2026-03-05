@@ -42,6 +42,7 @@
       const minLevel = raw.minLevel || raw.min_level || raw.level || raw.required_level || 1;
       const price = raw.price || raw.cost || raw.gold || 0;
       const slot = raw.slot || raw.type || raw.category || 'unknown';
+      const rarity = raw.rarity || raw.rarity_name || raw.rarityName || raw.item_rarity || raw.itemRarity || null;
       
       // market-low can be named with hyphen or underscore in logs, or nested under market.low
       const marketLow = raw['market-low'] || raw.market_low || raw.marketLow || (raw.market && raw.market.low) || null;
@@ -70,6 +71,7 @@
         minLevel: Number(minLevel),
         price: Number(price),
         slot,
+        rarity,
         power: power,
         marketLow: marketLow == null ? null : Number(marketLow),
         image_url: raw.image_url || raw.imageUrl || raw.icon || null,
