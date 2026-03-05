@@ -1,4 +1,4 @@
-# Alpha's SimpleMMO Scaler (ASS) and Dataminer
+# Alpha's SimpleMMO Scaler (A.S.S.) and Dataminer
 Made with love by Raven (Alpha, 28790)
 
 A dedicated tool for SimpleMMO, an old-school browser MMORPG. (https://web.simple-mmo.com)
@@ -23,6 +23,8 @@ Mine items with your own APIkey from https://web.simple-mmo.com/p-api/home, and 
 or
 Download a pre-mined log file provided already in the files :)
 NOTE: Since the data is MINED and stored to a log file MANUALLY, they may become outdated. 
+
+Special thanks to Winikolo for helping out with the logging work uwu
 
 All code is free to use, free to distribute, but not free to sell and profit.
 All the names of the items and icons of the output items belong to Galahad Creative LLC.
