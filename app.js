@@ -131,10 +131,14 @@
         `Items available: ${slotsFilled.textContent}`
       ];
 
-      const topPickLinks = resultsList.querySelectorAll('.slotGroup .topPickItem .itemText > a');
-      if (topPickLinks.length > 0) {
+      const allTopPickLinks = resultsList.querySelectorAll('.slotGroup .topPickItem .itemText > a');
+      const mainTopPickLinks = Array.from(allTopPickLinks).filter(
+        link => !link.closest('.unavailableSection')
+      );
+
+      if (mainTopPickLinks.length > 0) {
         lines.push('', 'Top Picks:');
-        topPickLinks.forEach(link => {
+        mainTopPickLinks.forEach(link => {
           lines.push(`- ${link.textContent}`);
         });
       }
