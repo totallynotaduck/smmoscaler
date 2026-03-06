@@ -10,13 +10,18 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     const configStatus = qs('configStatus');
+    const optimizerForm = qs('optimizerForm');
     const runButton = qs('runButton');
+    const resetButton = qs('resetButton');
     const sortButton = qs('sortButton');
     const levelInput = qs('levelInput');
     const goldInput = qs('goldInput');
     const minPowerInput = qs('minPowerInput');
+    const specialAttacksCheckbox = qs('specialAttacksCheckbox');
     const statusEl = qs('status');
+    const errorEl = qs('error');
     const resultsList = qs('resultsList');
+    const interestingItemsList = qs('interestingItemsList');
     const summary = qs('summary');
     const totalCost = qs('totalCost');
     const totalPower = qs('totalPower');
@@ -89,6 +94,27 @@
       totalPower.textContent = totalEquipmentStrength.toFixed(1);
       bestValue.textContent = maxValue.toFixed(4);
       slotsFilled.textContent = mainAvailableItems.length;
+    }
+
+    function resetUiState() {
+      sortBy = 'power';
+      sortButton.textContent = 'Sort by: Power';
+      sortButton.disabled = true;
+      summary.hidden = true;
+      resultsList.hidden = true;
+      resultsList.innerHTML = '';
+      if (interestingItemsList) {
+        interestingItemsList.innerHTML = '';
+      }
+      if (errorEl) {
+        errorEl.hidden = true;
+        errorEl.textContent = '';
+      }
+      totalCost.textContent = '—';
+      totalPower.textContent = '—';
+      bestValue.textContent = '—';
+      slotsFilled.textContent = '—';
+      statusEl.textContent = 'Ready.';
     }
 
     function getStatDisplayName(statKey) {
@@ -176,7 +202,7 @@
         // include an `item` object from the API; normalize if so.
         const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
         let items = [];
-        const includeCritBonus = qs('specialAttacksCheckbox').checked;
+        const includeCritBonus = specialAttacksCheckbox.checked;
         if (rawLogs.length > 0) {
           // Normalize items from logs, filtering out nulls (which are 404 entries)
           items = rawLogs
@@ -484,7 +510,7 @@
         const minPower = Number(minPowerInput.value) || 0;
         const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
         let items = [];
-        const includeCritBonus = qs('specialAttacksCheckbox').checked;
+        const includeCritBonus = specialAttacksCheckbox.checked;
         if (rawLogs.length > 0) {
           items = rawLogs
             .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level) : null)
@@ -516,6 +542,21 @@
         statusEl.textContent = `Sort error: ${e.message || e}`;
       }
     });
+
+    resetButton.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (optimizerForm) {
+        optimizerForm.reset();
+      } else {
+        levelInput.value = '1';
+        goldInput.value = '0';
+        minPowerInput.value = '0';
+        specialAttacksCheckbox.checked = false;
+      }
+      resetUiState();
+    });
+
+    resetUiState();
   });
 
   global.SMMO_APP = { CONFIG };
