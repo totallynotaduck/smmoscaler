@@ -442,16 +442,26 @@
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
 
-      const rarityColor = getRarityColor(it.rarity);
-      if (rarityColor) {
-        link.style.color = rarityColor;
+      const rarityName = String(it.rarity || '').trim().toLowerCase();
+      if (rarityName === 'celestial') {
+        link.classList.add('rarityCelestial');
         link.style.fontWeight = 'bold';
         link.style.textDecoration = 'none';
-        link.style.textDecorationColor = rarityColor;
+      } else {
+        const rarityColor = getRarityColor(it.rarity);
+        if (rarityColor) {
+          link.style.color = rarityColor;
+          link.style.fontWeight = 'bold';
+          link.style.textDecoration = 'none';
+          link.style.textDecorationColor = rarityColor;
+        }
       }
 
       textContainer.appendChild(link);
-      textContainer.appendChild(document.createTextNode(` (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`));
+      const itemMeta = document.createElement('span');
+      itemMeta.className = 'itemMeta';
+      itemMeta.textContent = ` (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`;
+      textContainer.appendChild(itemMeta);
       const statsLine = document.createElement('div');
       statsLine.className = 'itemStatsLine';
       statsLine.textContent = formatItemStats(it);

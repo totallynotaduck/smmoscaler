@@ -489,6 +489,14 @@ summary {
   height: 52px;
 }
 
+.topPickItem .itemText {
+  font-weight: 700;
+}
+
+.topPickItem .itemText a {
+  font-weight: 800;
+}
+
 .topPickItem .itemText::before {
   content: "Top Pick";
   display: inline-block;
@@ -501,6 +509,35 @@ summary {
   font-size: 11px;
   font-weight: 700;
   vertical-align: middle;
+}
+
+.topPickItem .itemText::before {
+  font-size: 13px;
+  padding: 4px 10px;
+}
+
+.itemText > a {
+  font-weight: 700;
+}
+
+.topPickItem .itemText > a {
+  font-size: 20px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.itemMeta {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.topPickItem .itemMeta {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--faint);
 }
 
 .secondaryItem {
@@ -535,6 +572,34 @@ summary {
 
 .itemText {
   flex: 1 1 auto;
+}
+
+.rarityCelestial {
+  color: transparent !important;
+  background: repeating-linear-gradient(
+    120deg,
+    #102f66 0px,
+    #2f74b8 26px,
+    #6bb9f3 52px,
+    #d7f2ff 78px,
+    #6bb9f3 104px,
+    #2f74b8 130px,
+    #102f66 156px
+  );
+  background-size: 156px 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: celestialShine 3.2s linear infinite;
+  text-shadow: 0 0 10px rgba(111, 199, 255, 0.25);
+}
+
+@keyframes celestialShine {
+  0% {
+    background-position: 0 50%;
+  }
+  100% {
+    background-position: -156px 50%;
+  }
 }
 
 .itemStatsLine {
