@@ -91,6 +91,27 @@
       slotsFilled.textContent = mainAvailableItems.length;
     }
 
+    function getStatDisplayName(statKey) {
+      const labels = {
+        str: 'Strength',
+        def: 'Defence',
+        crit: 'Crit',
+        hp: 'HP'
+      };
+      return labels[statKey] || String(statKey || '').toUpperCase();
+    }
+
+    function formatStatValue(value) {
+      if (!Number.isFinite(value)) return '0';
+      return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
+    }
+
+    function formatItemStats(item) {
+      if (!item || !Array.isArray(item.stats) || item.stats.length === 0) return 'Stats: —';
+      const parts = item.stats.map(stat => `${getStatDisplayName(stat.key)} ${formatStatValue(stat.value)}`);
+      return `Stats: ${parts.join(' • ')}`;
+    }
+
     function normalizeItem(raw, includeCritBonus = false, playerLevel = 1) {
       if (!raw) return null;
       const id = raw.id || raw.item_id || raw.itemId || raw._id || String(raw.id || raw.item_id || raw.itemId || '');
@@ -107,6 +128,7 @@
       
       // Calculate power based on stats: str = 1 point, def = 0.3 points
       let power = 0;
+      const stats = [];
       const statPairs = [
         { statName: raw.stat1, statValue: raw.stat1modifier },
         { statName: raw.stat2, statValue: raw.stat2modifier },
@@ -114,10 +136,16 @@
       ];
       for (const { statName, statValue } of statPairs) {
         if (!statName || statValue == null) continue;
-        const modifier = Number(statValue) || 0;
-        if (statName === 'str') power += modifier * 1;
-        else if (statName === 'def') power += modifier * 0.3;
-        else if (statName === 'crit' && includeCritBonus) {
+        const statKey = String(statName).trim().toLowerCase();
+        const modifier = Number(statValue);
+        if (!Number.isFinite(modifier) || !statKey) continue;
+        if (modifier !== 0) {
+          stats.push({ key: statKey, value: modifier });
+        }
+
+        if (statKey === 'str') power += modifier * 1;
+        else if (statKey === 'def') power += modifier * 0.3;
+        else if (statKey === 'crit' && includeCritBonus) {
           // Formula: Player Level x 2 x Crit Value/1000
           power += playerLevel * 2 * (modifier / 1000);
         }
@@ -132,6 +160,7 @@
         rarity,
         custom_item,
         power: power,
+        stats,
         marketLow,
         image_url: raw.image_url || raw.imageUrl || raw.icon || null,
       };
@@ -294,6 +323,10 @@
                 
                 textContainer.appendChild(link);
                 textContainer.appendChild(document.createTextNode(` (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`));
+                const statsLine = document.createElement('div');
+                statsLine.className = 'itemStatsLine';
+                statsLine.textContent = formatItemStats(it);
+                textContainer.appendChild(statsLine);
                 
                 div.appendChild(iconContainer);
                 div.appendChild(textContainer);
@@ -403,6 +436,10 @@
                 
                 textContainer.appendChild(link);
                 textContainer.appendChild(document.createTextNode(` (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`));
+                const statsLine = document.createElement('div');
+                statsLine.className = 'itemStatsLine';
+                statsLine.textContent = formatItemStats(it);
+                textContainer.appendChild(statsLine);
                 
                 div.appendChild(iconContainer);
                 div.appendChild(textContainer);
@@ -511,6 +548,10 @@
             
             textContainer.appendChild(link);
             textContainer.appendChild(document.createTextNode(` (Power ${it.power.toFixed(1)}, Estimated cost ${it.cost}, Value ${valueDisplay})`));
+            const statsLine = document.createElement('div');
+            statsLine.className = 'itemStatsLine';
+            statsLine.textContent = formatItemStats(it);
+            textContainer.appendChild(statsLine);
             
             div.appendChild(iconContainer);
             div.appendChild(textContainer);

@@ -463,6 +463,13 @@ summary {
   flex: 1 1 auto;
 }
 
+.itemStatsLine {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--faint);
+}
+
 .resultItem:hover {
   border-color: rgba(110, 231, 255, 0.35);
   background: rgba(110, 231, 255, 0.06);
