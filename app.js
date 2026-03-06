@@ -138,7 +138,35 @@
       return `Stats: ${parts.join(' • ')}`;
     }
 
-    function normalizeItem(raw, includeCritBonus = false, playerLevel = 1) {
+    function normalizeCustomTag(value) {
+      if (value == null) return '';
+      return String(value).trim().toLowerCase();
+    }
+
+    function sortSlotItems(slotItems, slotName) {
+      slotItems.sort((a, b) => {
+        if (slotName === 'Avatar' || slotName === 'Item Sprite') {
+          const loggedA = Number(a.loggedItemId ?? a.id ?? 0);
+          const loggedB = Number(b.loggedItemId ?? b.id ?? 0);
+          return loggedB - loggedA;
+        }
+
+        const primaryA = sortBy === 'power' ? (a.power || 0) : (a.bestValue || 0);
+        const primaryB = sortBy === 'power' ? (b.power || 0) : (b.bestValue || 0);
+        if (primaryB !== primaryA) return primaryB - primaryA;
+
+        if (slotName === 'Collectable') {
+          const tagA = normalizeCustomTag(a.customItemTag ?? a.custom_item);
+          const tagB = normalizeCustomTag(b.customItemTag ?? b.custom_item);
+          const tagCompare = tagA.localeCompare(tagB, undefined, { numeric: true, sensitivity: 'base' });
+          if (tagCompare !== 0) return tagCompare;
+        }
+
+        return Number(a.id || 0) - Number(b.id || 0);
+      });
+    }
+
+    function normalizeItem(raw, includeCritBonus = false, playerLevel = 1, loggedItemId = null) {
       if (!raw) return null;
       const id = raw.id || raw.item_id || raw.itemId || raw._id || String(raw.id || raw.item_id || raw.itemId || '');
       const name = raw.name || raw.item_name || raw.title || `Item ${id}`;
@@ -147,6 +175,7 @@
       const slot = raw.slot || raw.type || raw.category || 'unknown';
       const rarity = raw.rarity || raw.rarity_name || raw.rarityName || raw.item_rarity || raw.itemRarity || null;
       const custom_item = raw.custom_item || raw.customItem || raw.is_custom || raw.isCustom || null;
+      const customItemTag = raw.custom_item_tag || raw.customItemTag || raw.item_tag || raw.itemTag || null;
       
       // market-low can be named with hyphen or underscore in logs, or nested under market.low
       const marketLowRaw = raw['market-low'] ?? raw.market_low ?? raw.marketLow ?? (raw.market && raw.market.low);
@@ -185,6 +214,8 @@
         slot,
         rarity,
         custom_item,
+        customItemTag,
+        loggedItemId: loggedItemId == null ? null : Number(loggedItemId),
         power: power,
         stats,
         marketLow,
@@ -206,7 +237,7 @@
         if (rawLogs.length > 0) {
           // Normalize items from logs, filtering out nulls (which are 404 entries)
           items = rawLogs
-            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level) : null)
+            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level, l.id) : null)
             .filter(it => it !== null);
           configStatus.textContent = `Using ${items.length} items from logs (${rawLogs.length} total entries)`;
         } else {
@@ -286,12 +317,7 @@
               const slotItems = slots[slotName];
               
               // Sort by current sortBy mode
-              if (sortBy === 'power') {
-                slotItems.sort((a, b) => b.power - a.power);
-              } else {
-                // Sort by bestValue descending
-                slotItems.sort((a, b) => b.bestValue - a.bestValue);
-              }
+              sortSlotItems(slotItems, slotName);
 
               totalItems += renderSlotGroup(resultsList, slotName, slotItems);
             }
@@ -336,12 +362,7 @@
               const slotItems = unavailableSlots[slotName];
               
               // Sort by current sortBy mode
-              if (sortBy === 'power') {
-                slotItems.sort((a, b) => b.power - a.power);
-              } else {
-                // Sort by bestValue descending
-                slotItems.sort((a, b) => b.bestValue - a.bestValue);
-              }
+              sortSlotItems(slotItems, slotName);
 
               renderSlotGroup(unavailableContent, slotName, slotItems);
             }
@@ -385,12 +406,7 @@
           const slotItems = slots[slotName];
           
           // Sort by current sortBy mode
-          if (sortBy === 'power') {
-            slotItems.sort((a, b) => b.power - a.power);
-          } else {
-            // Sort by bestValue descending
-            slotItems.sort((a, b) => b.bestValue - a.bestValue);
-          }
+          sortSlotItems(slotItems, slotName);
 
           renderSlotGroup(interestingItemsList, slotName, slotItems);
         }
@@ -513,7 +529,7 @@
         const includeCritBonus = specialAttacksCheckbox.checked;
         if (rawLogs.length > 0) {
           items = rawLogs
-            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level) : null)
+            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level, l.id) : null)
             .filter(it => it !== null);
         } else {
           items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
