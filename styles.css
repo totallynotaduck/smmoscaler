@@ -118,6 +118,48 @@ h1 {
   overflow: hidden;
 }
 
+.logger {
+  padding: 18px;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+@media (max-width: 1699px) {
+  .card {
+    display: block;
+  }
+
+  .cardColumn--right {
+    border-left: 0;
+  }
+}
+
+@media (min-width: 1700px) {
+  .card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .cardColumn--left,
+  .cardColumn--right {
+    min-width: 0;
+  }
+
+  .cardColumn--left {
+    grid-column: 1;
+  }
+
+  .cardColumn--right {
+    grid-column: 2;
+    border-left: 1px solid var(--border);
+  }
+
+  .cardColumn--right > .logger:first-child {
+    border-top: 0;
+  }
+}
+
 .form {
   padding: 18px;
   border-bottom: 1px solid var(--border);
