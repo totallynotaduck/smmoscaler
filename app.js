@@ -27,7 +27,7 @@
     const totalCost = qs('totalCost');
     const totalPower = qs('totalPower');
     const slotsFilled = qs('slotsFilled');
-    const INTERESTING_TYPES = ['Collectable', 'Tome', 'Avatar', 'Item Sprite', 'Grenade', 'Food'];
+    const INTERESTING_TYPES = ['Collectable', 'Tome', 'Avatar', 'Item Sprite', 'Grenade', 'Food', 'Background'];
 
     let sortBy = 'power'; // 'power' or 'value'
 
