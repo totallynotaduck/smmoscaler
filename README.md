@@ -8,10 +8,6 @@ Tells you what the best item you can get for your level, and gold for the webgam
 https://totallynotaduck.github.io/smmoscaler/
 
 
-Uses datamined logsheet of every possible item in the game, tool included in the webpage.
-
-
-Dataminer runs at 1 request per 2 seconds. Slow but you would not get HTTP429.
 
 HOW TO USE:
 Local:Download all files and run index.html
@@ -21,14 +17,12 @@ Or
 Use page above.
 
 Logging: The scaler is a calculator/sorter that sorts by the logged items in the smmoscaler-logs.json file. 
-Mine items with your own APIkey from https://web.simple-mmo.com/p-api/home, and download results...
 
 or
 
-Download a pre-mined log file provided already in the files :)
-NOTE: Since the data is MINED and stored to a log file MANUALLY, they may become outdated. 
+Download a log file provided already in the files :)
 
-Special thanks to Winikolo for helping out with the logging work uwu
+Special thanks to Winikolo for typing out the logs uwu
 
 Thanks to Fluxeon for playtesting the tool and providing feedback.
 
