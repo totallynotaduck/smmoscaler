@@ -27,7 +27,24 @@
     const totalCost = qs('totalCost');
     const totalPower = qs('totalPower');
     const slotsFilled = qs('slotsFilled');
-    const INTERESTING_TYPES = ['Collectable', 'Tome', 'Avatar', 'Item Sprite', 'Grenade', 'Food', 'Background'];
+    const INTERESTING_TYPE_KEYS = new Set([
+      'collectable',
+      'tome',
+      'avatar',
+      'item sprite',
+      'grenade',
+      'food',
+      'background',
+      'potion',
+      'bootleg weapon',
+      'event collectable',
+      'exclusive trading card',
+      'book',
+      'trading card',
+      'card pack',
+      'material',
+      'treasure chest'
+    ]);
 
     let sortBy = 'power'; // 'power' or 'value'
 
@@ -50,8 +67,12 @@
       return Number.isFinite(parsed) ? parsed : null;
     }
 
+    function getSlotKey(slot) {
+      return String(slot || '').trim().toLowerCase();
+    }
+
     function isMainOutputItem(item) {
-      return !INTERESTING_TYPES.includes(item.slot) && !item.custom_item && item.slot !== 'Tools' && 
+      return !INTERESTING_TYPE_KEYS.has(getSlotKey(item.slot)) && !item.custom_item && item.slot !== 'Tools' && 
              !['Wood Axe', 'Pickaxe', 'Fishing Rod', 'Shovel', 'Rusty Axe', 'Rusty Fishing Rod', 'Rusty Shovel', 'Rusty Pickaxe'].includes(item.name);
     }
 
