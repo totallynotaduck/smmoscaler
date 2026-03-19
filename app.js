@@ -36,9 +36,7 @@
 
     // Debug: log config and initial state
     console.log('SMMO Scaler initialized', { 
-      CONFIG: CONFIG ? 'loaded' : 'missing',
-      logsAvailable: !!window.SMMO_ITEM_LOGS,
-      logsCount: (window.SMMO_ITEM_LOGS || []).length
+      CONFIG: CONFIG ? 'loaded' : 'missing'
     });
 
     function parseNumber(value) {
@@ -306,33 +304,76 @@
       };
     }
 
+    function getImportedItems(includeCritBonus = false, playerLevel = 1) {
+      const importedLogs = (global.SMMO_LOGS && typeof global.SMMO_LOGS.get === 'function')
+        ? global.SMMO_LOGS.get()
+        : (global.SMMO_ITEM_LOGS || []);
+
+      if (!Array.isArray(importedLogs) || importedLogs.length === 0) {
+        return { items: [], logCount: 0 };
+      }
+
+      const normalizedItems = importedLogs
+        .map(entry => {
+          const rawItem = (entry && entry.item && typeof entry.item === 'object') ? entry.item : entry;
+          if (!rawItem || typeof rawItem !== 'object') return null;
+
+          const loggedItemId = (entry && (entry.id || entry.item_id || entry.itemId))
+            || rawItem.id
+            || rawItem.item_id
+            || rawItem.itemId
+            || null;
+
+          return normalizeItem(rawItem, includeCritBonus, playerLevel, loggedItemId);
+        })
+        .filter(item => item && item.id);
+
+      return { items: normalizedItems, logCount: importedLogs.length };
+    }
+
+    function getWorkingItems(includeCritBonus = false, playerLevel = 1) {
+      const imported = getImportedItems(includeCritBonus, playerLevel);
+
+      if (imported.logCount > 0) {
+        configStatus.textContent = `Using ${imported.items.length} imported items`;
+        return { items: imported.items, source: 'imported', logCount: imported.logCount };
+      }
+
+      if (CONFIG && Array.isArray(CONFIG.DEMO_ITEMS)) {
+        const demoItems = CONFIG.DEMO_ITEMS
+          .map(item => normalizeItem(item, includeCritBonus, playerLevel))
+          .filter(item => item && item.id);
+        configStatus.textContent = `Using ${demoItems.length} demo items`;
+        return { items: demoItems, source: 'demo', logCount: 0 };
+      }
+
+      configStatus.textContent = 'No items available (no imported logs or demo data)';
+      return { items: [], source: 'none', logCount: 0 };
+    }
+
     runButton.addEventListener('click', (ev) => {
       ev.preventDefault();
       try {
         statusEl.textContent = 'Computing…';
         const level = Number(levelInput.value) || 1;
         const gold = Number(goldInput.value) || 0;
-        // Prefer logs if present (populated by logger.js). Logged entries may
-        // include an `item` object from the API; normalize if so.
-        const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
-        let items = [];
+        const minPower = Number(minPowerInput.value) || 0;
         const includeCritBonus = specialAttacksCheckbox.checked;
-        if (rawLogs.length > 0) {
-          // Normalize items from logs, filtering out nulls (which are 404 entries)
-          items = rawLogs
-            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level, l.id) : null)
-            .filter(it => it !== null);
-          configStatus.textContent = `Using ${items.length} items from logs (${rawLogs.length} total entries)`;
-        } else {
-          items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
-        }
 
-        console.log('Loaded items for filtering', { rawLogsCount: rawLogs.length, normalizedCount: items.length, level, gold });
+        const dataset = getWorkingItems(includeCritBonus, level);
+        const items = dataset.items;
+
+        console.log('Loaded items for filtering', {
+          itemCount: items.length,
+          level,
+          gold,
+          source: dataset.source,
+          importedLogCount: dataset.logCount
+        });
 
         // Filter items: must have level requirement met AND must have a cost
         // (marketLow preferred, falls back to price). Blank/404 items are skipped.
         // Exclude Food and Other item types from showing up in the UI output
-        const minPower = Number(minPowerInput.value) || 0;
         const usable = items.filter(it => {
           if (!it || !it.id) return false;
           // Use marketLow if available, fallback to price
@@ -620,28 +661,41 @@
         const level = Number(levelInput.value) || 1;
         const gold = Number(goldInput.value) || 0;
         const minPower = Number(minPowerInput.value) || 0;
-        const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
-        let items = [];
         const includeCritBonus = specialAttacksCheckbox.checked;
-        if (rawLogs.length > 0) {
-          items = rawLogs
-            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level, l.id) : null)
-            .filter(it => it !== null);
-        } else {
-          items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
-        }
+
+        const dataset = getWorkingItems(includeCritBonus, level);
+        const items = dataset.items;
+
+        console.log('Loaded items for sorting', {
+          itemCount: items.length,
+          level,
+          gold,
+          source: dataset.source,
+          importedLogCount: dataset.logCount
+        });
+
+        // Filter items: must have level requirement met AND must have a cost
+        // (marketLow preferred, falls back to price). Blank/404 items are skipped.
+        // Exclude Food and Other item types from showing up in the UI output
         const usable = items.filter(it => {
           if (!it || !it.id) return false;
+          // Use marketLow if available, fallback to price
           const cost = it.marketLow != null ? it.marketLow : (it.price != null ? it.price : null);
           if (cost == null) return false;
+          // Exclude Food and Other item types
+          if (it.slot === 'Food' || it.slot === 'Other') return false;
           return (it.minLevel || 0) <= level && cost <= gold && it.power >= minPower;
         });
+
+        console.log('Filtered to usable items for sorting', { usableCount: usable.length, level, gold });
+
+        // Calculate cost and bestValue for each usable item
         usable.forEach(it => {
           const cost = it.marketLow != null ? it.marketLow : it.price;
           it.cost = cost;
           it.bestValue = cost > 0 ? it.power / cost : 0;
         });
-        
+
         // Separate items with estimated cost of 0 (unavailable) from others
         const unavailableItems = usable.filter(it => (it.cost || 0) === 0);
         const availableItems = usable.filter(it => (it.cost || 0) > 0);

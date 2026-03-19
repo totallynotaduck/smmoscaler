@@ -175,32 +175,13 @@
         <div class="cardColumn cardColumn--right">
 
         <section class="logger" aria-labelledby="loggerTitle">
-          <h2 id="loggerTitle" class="loggerTitle">Item log helper</h2>
+          <h2 id="loggerTitle" class="loggerTitle">Import Logs</h2>
           <p class="loggerHelp">
-            Use your SimpleMMO public API key to automatically fetch item
-            details and append them to the local log. The tool will request up
-            to 40 new item IDs every minute, going through unlogged IDs in
-            order and avoiding duplicates.
+            Import item logs from a JSON file to use with the optimizer.
           </p>
           <div class="loggerRow">
-            <label class="field loggerField">
-              <span class="label">Public API key for logging</span>
-              <input
-                id="loggerApiKeyInput"
-                name="loggerApiKey"
-                type="password"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </label>
             <div class="loggerButtons">
-                <button id="loggerStartButton" class="primary small" type="button">
-                  Start logging
-                </button>
-                <button id="loggerExportButton" class="ghost small" type="button">
-                  Download logs
-                </button>
-                <button id="loggerImportButton" class="ghost small" type="button">
+                <button id="loggerImportButton" class="primary small" type="button">
                   Import logs
                 </button>
                 <input id="loggerImportInput" type="file" accept="application/json" style="display:none" />
@@ -212,42 +193,10 @@
             role="status"
             aria-live="polite"
           >
-            Logger idle.
+            Import idle.
           </div>
         </section>
 
-        <section class="logger" aria-labelledby="updateDbTitle">
-          <h2 id="updateDbTitle" class="loggerTitle">Update database</h2>
-          <p class="loggerHelp">
-            Fetch item details starting from a specific item ID and replace existing entries with the same ID.
-          </p>
-          <div class="loggerRow">
-            <label class="field loggerField">
-              <span class="label">Start from item ID</span>
-              <input
-                id="updateDbStartIdInput"
-                name="updateDbStartId"
-                type="number"
-                min="1"
-                step="1"
-                value="1"
-              />
-            </label>
-            <div class="loggerButtons">
-                <button id="updateDbStartButton" class="primary small" type="button">
-                  Update database
-                </button>
-            </div>
-          </div>
-          <div
-            id="updateDbStatus"
-            class="status loggerStatus"
-            role="status"
-            aria-live="polite"
-          >
-            Database update idle.
-          </div>
-        </section>
 
         <section class="documentation" aria-labelledby="documentationTitle">
           <h2 id="documentationTitle" class="documentationTitle">About This Tool</h2>
@@ -267,8 +216,8 @@
                 <li><strong>Gear Optimization:</strong> Calculates the best equipment based on your level and available gold</li>
                 <li><strong>Power Calculation:</strong> Uses a sophisticated formula considering Strength, Defence, and Crit% values</li>
                 <li><strong>Special Attacks Support:</strong> Includes Crit-based gear analysis for players using special attacks</li>
-                <li><strong>Live Data Mining:</strong> Connects to the SimpleMMO API to fetch real-time item information</li>
-                <li><strong>Community Database:</strong> New items are automatically discovered and can be maintained by the community</li>
+                <li><strong>Import Logs:</strong> Import item data from JSON files to use with the optimizer</li>
+                <li><strong>Community Database:</strong> New items can be maintained by the community</li>
               </ul>
             </div>
 
@@ -303,6 +252,41 @@
     <script src="./logs.js"></script>
     <script src="./config.js"></script>
     <script src="./app.js"></script>
-    <script src="./logger.js"></script>
+    <script>
+      // Import logs functionality
+      document.addEventListener('DOMContentLoaded', () => {
+        const importButton = document.getElementById('loggerImportButton');
+        const importInput = document.getElementById('loggerImportInput');
+        const statusEl = document.getElementById('loggerStatus');
+
+        if (importButton && importInput) {
+          importButton.addEventListener('click', () => {
+            importInput.click();
+          });
+
+          importInput.addEventListener('change', async (event) => {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+
+            try {
+              statusEl.textContent = 'Importing…';
+              const result = await importLogs(file);
+              statusEl.textContent = `Imported ${result.imported} items. Total: ${result.total}`;
+              // Refresh the optimizer to use the new logs
+              if (window.SMMO_APP && window.SMMO_APP.CONFIG) {
+                // Trigger a refresh of the optimizer
+                const runButton = document.getElementById('runButton');
+                if (runButton) runButton.click();
+              }
+            } catch (error) {
+              console.error('Import error:', error);
+              statusEl.textContent = 'Import failed: ' + (error.message || error);
+            } finally {
+              importInput.value = '';
+            }
+          });
+        }
+      });
+    </script>
   </body>
 </html>
