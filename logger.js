@@ -334,9 +334,20 @@
       // Build candidate ID list
       let ids = [];
       if (Array.isArray(config.ITEM_IDS) && config.ITEM_IDS.length > 0) {
-        ids = config.ITEM_IDS
+        const configuredIds = config.ITEM_IDS
           .map(id => toPositiveInt(id))
-          .filter(id => id > latestLoggedId);
+          .filter(id => id > 0);
+
+        ids = configuredIds.filter(id => id > latestLoggedId);
+
+        // If configured IDs are exhausted, continue probing from latest+1.
+        if (ids.length === 0) {
+          const maxConfiguredId = configuredIds.length > 0 ? Math.max(...configuredIds) : 0;
+          if (latestLoggedId >= maxConfiguredId) {
+            const startId = latestLoggedId + 1;
+            for (let i = startId; i <= 999000; i++) ids.push(i);
+          }
+        }
       }
       else {
         // Start from latest logged ID + 1 to resume logging
