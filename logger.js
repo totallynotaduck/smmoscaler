@@ -359,14 +359,44 @@
 
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+    function parseRetryAfterMs(value) {
+      if (value == null || value === '') return null;
+      const asSeconds = Number(value);
+      if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+        return Math.max(0, Math.round(asSeconds * 1000));
+      }
+      const asDate = Date.parse(String(value));
+      if (Number.isFinite(asDate)) {
+        return Math.max(0, asDate - Date.now());
+      }
+      return null;
+    }
+
     async function fetchItem(url, options) {
       try {
         const resp = await fetch(url, options);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        return { ok: true, data };
+        const retryAfter = resp.headers && typeof resp.headers.get === 'function'
+          ? resp.headers.get('Retry-After')
+          : null;
+        let data = null;
+        try {
+          data = await resp.json();
+        } catch (e) {
+          data = null;
+        }
+
+        if (!resp.ok) {
+          return {
+            ok: false,
+            status: resp.status,
+            retryAfter,
+            error: new Error(`HTTP ${resp.status}`),
+            data
+          };
+        }
+        return { ok: true, data, status: resp.status };
       } catch (err) {
-        return { ok: false, error: err };
+        return { ok: false, status: 0, error: err };
       }
     }
 
@@ -941,40 +971,80 @@
         let updated = 0;
         let skipped = 0;
         let errors = 0;
+        let preferredAuthLabel = 'initial';
 
         async function attemptFetchWithFallback(initialUrl, initialOptions, ctx) {
-          const attempts = [];
-          attempts.push({ url: initialUrl, options: initialOptions, label: 'initial' });
+          const attemptsByLabel = {};
+          attemptsByLabel.initial = { url: initialUrl, options: initialOptions, label: 'initial' };
 
           if (ctx.apiKeyMode === 'header' && String(ctx.apiKeyHeader).toLowerCase() !== 'authorization') {
             const h = Object.assign({}, initialOptions.headers || {});
             h['Authorization'] = ctx.apiKey.startsWith('Bearer ') ? ctx.apiKey : `Bearer ${ctx.apiKey}`;
-            attempts.push({ url: initialUrl, options: Object.assign({}, initialOptions, { headers: h }), label: 'bearer' });
+            attemptsByLabel.bearer = { url: initialUrl, options: Object.assign({}, initialOptions, { headers: h }), label: 'bearer' };
           }
 
           const paramName = (ctx.config && ctx.config.API_KEY_QUERY_PARAM) || 'apiKey';
-          const sep = initialUrl.includes('?') ? '&' : '?';
-          const urlWithQuery = `${initialUrl}${sep}${encodeURIComponent(paramName)}=${encodeURIComponent(ctx.apiKey)}`;
-          attempts.push({ url: urlWithQuery, options: initialOptions, label: 'query' });
+          const encodedParam = `${encodeURIComponent(paramName)}=`;
+          const alreadyHasQueryAuth = initialUrl.includes(encodedParam);
+          if (!alreadyHasQueryAuth) {
+            const sep = initialUrl.includes('?') ? '&' : '?';
+            const urlWithQuery = `${initialUrl}${sep}${encodedParam}${encodeURIComponent(ctx.apiKey)}`;
+            attemptsByLabel.query = { url: urlWithQuery, options: initialOptions, label: 'query' };
+          }
 
           if ((ctx.method || 'POST').toUpperCase() === 'POST') {
             const opts = Object.assign({}, initialOptions);
             const h = Object.assign({}, opts.headers || {});
             h['Content-Type'] = 'application/json';
-            const body = Object.assign({}, opts.body ? JSON.parse(opts.body) : {}, { api_key: ctx.apiKey });
+            const bodySource = opts.body ? JSON.parse(opts.body) : {};
+            const body = Object.assign({}, bodySource, { api_key: ctx.apiKey });
             opts.headers = h;
             opts.body = JSON.stringify(body);
-            attempts.push({ url: initialUrl, options: opts, label: 'body' });
+            if (!Object.prototype.hasOwnProperty.call(bodySource, 'api_key')) {
+              attemptsByLabel.body = { url: initialUrl, options: opts, label: 'body' };
+            }
           }
 
-          for (const a of attempts) {
-            const res = await fetchItem(a.url, a.options);
-            if (res.ok) return { ok: true, data: res.data, used: a.label };
-            if (res.error && res.error.message && res.error.message.includes('HTTP 401')) {
-              await sleep(300);
-              continue;
+          const fallbackOrder = ['initial', 'bearer', 'query', 'body'].filter(label => attemptsByLabel[label]);
+          const preferred = ctx.preferredAuthLabel;
+          const orderedLabels = (preferred && attemptsByLabel[preferred])
+            ? [preferred].concat(fallbackOrder.filter(label => label !== preferred))
+            : fallbackOrder;
+
+          for (const label of orderedLabels) {
+            const a = attemptsByLabel[label];
+            const maxRateLimitRetries = 5;
+            for (let rateTry = 0; rateTry <= maxRateLimitRetries; rateTry++) {
+              const res = await fetchItem(a.url, a.options);
+              if (res.ok) return { ok: true, data: res.data, used: a.label };
+
+              if (res.status === 429) {
+                const retryAfterMs = parseRetryAfterMs(res.retryAfter);
+                const expBackoff = Math.min(60000, 2000 * Math.pow(2, rateTry));
+                const waitMs = Math.max(retryAfterMs || 0, expBackoff) + Math.floor(Math.random() * 400);
+                if (updateImportedStatus) {
+                  const waitSeconds = Math.max(1, Math.ceil(waitMs / 1000));
+                  updateImportedStatus.textContent = `Rate limited (HTTP 429). Waiting ${waitSeconds}s before retrying ${a.label}…`;
+                }
+                await sleep(waitMs);
+                if (rateTry === maxRateLimitRetries) {
+                  return {
+                    ok: false,
+                    status: 429,
+                    rateLimited: true,
+                    error: new Error('HTTP 429')
+                  };
+                }
+                continue;
+              }
+
+              if (res.status === 401 || (res.error && res.error.message && res.error.message.includes('HTTP 401'))) {
+                await sleep(300);
+                break;
+              }
+
+              return { ok: false, error: res.error, status: res.status };
             }
-            return { ok: false, error: res.error };
           }
 
           return { ok: false, error: new Error('All auth attempts failed (401)') };
@@ -1010,9 +1080,10 @@
           }
 
           updateImportedStatus.textContent = `Refreshing imported ID ${idStr}…`;
-          const ctx = { apiKeyMode, apiKeyHeader, apiKey, config, method };
+          const ctx = { apiKeyMode, apiKeyHeader, apiKey, config, method, preferredAuthLabel };
           const attemptResult = await attemptFetchWithFallback(requestUrl, options, ctx);
           if (attemptResult.ok) {
+            if (attemptResult.used) preferredAuthLabel = attemptResult.used;
             const entry = { id: id, fetchedAt: new Date().toISOString(), item: attemptResult.data };
             const logs = (global.SMMO_LOGS && typeof global.SMMO_LOGS.get === 'function')
               ? global.SMMO_LOGS.get()
@@ -1035,7 +1106,10 @@
             updateImportedStatus.textContent = `Updated ${updated}/${idsToUpdate.length} imported IDs — last ${idStr} (auth: ${attemptResult.used || 'unknown'})`;
           } else {
             const msg = attemptResult.error && attemptResult.error.message ? attemptResult.error.message : String(attemptResult.error);
-            if (msg.includes('HTTP 404')) {
+            if (attemptResult.rateLimited || msg.includes('HTTP 429')) {
+              errors++;
+              updateImportedStatus.textContent = `Rate limited while updating ${idStr}. Backoff retries exhausted.`;
+            } else if (msg.includes('HTTP 404')) {
               skipped++;
               updateImportedStatus.textContent = `Imported ID ${idStr} not found - skipping`;
             } else {
