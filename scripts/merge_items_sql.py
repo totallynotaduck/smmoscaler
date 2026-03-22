@@ -298,7 +298,6 @@ def main():
         raise ValueError("No INSERT INTO items VALUES blocks found in SQL file.")
 
     merged = list(existing)
-    # Build seen set with explicit loop - one call per entry, no intermediate generator
     seen = set()
     for e in existing:
         entry_id = extract_entry_id(e)

@@ -1,8 +1,3 @@
-/* Minimal SMMO Scaler app logic
- * This file replaces the broken config-like contents previously present.
- * It provides a small optimizer UI and exposes a `SMMO_APP` object.
- */
-
 (function main(global) {
   const CONFIG = global.SMMO_SCALER_CONFIG || null;
 
@@ -26,6 +21,7 @@
     const errorEl = qs('error');
     const resultsList = qs('resultsList');
     const interestingItemsList = qs('interestingItemsList');
+    const toolItemsList = qs('toolItemsList');
     const summary = qs('summary');
     const totalCost = qs('totalCost');
     const totalPower = qs('totalPower');
@@ -50,6 +46,11 @@
     ]);
 
     const TOOL_SLOT_KEYS = new Set(['tools', 'wood axe', 'pickaxe', 'fishing rod', 'shovel']);
+    const SLOT_ORDER = [
+      'Helmet', 'Amulet', 'Armour', 'Weapon', 'Shield',
+      'Greaves', 'Gauntlet', 'Boots', 'Pet', 'Special'
+    ];
+    const SLOT_ORDER_MAP = new Map(SLOT_ORDER.map((s, i) => [s.toLowerCase(), i]));
     const RARITY_ORDER = {
       'Celestial': 7, 'Legendary': 6, 'Epic': 5, 'Elite': 4,
       'Rare': 3, 'Uncommon': 2, 'Common': 1
@@ -61,10 +62,9 @@
     };
     const STAT_LABELS = { str: 'Strength', def: 'Defence', crit: 'Crit', hp: 'HP' };
 
-    let sortBy = 'power'; // 'power' or 'value'
+    let sortBy = 'power';
     let budgetCapEnabled = false;
 
-    // Normalized item cache - avoids re-normalizing 175K items on every search
     let cachedNormalizedItems = null;
     let cachedLogsRef = null;
     let cachedIncludeCrit = null;
@@ -98,13 +98,6 @@
 
     if (CONFIG) configStatus.textContent = 'Config loaded';
     else configStatus.textContent = 'Config missing - using demo data';
-
-    // Debug: log config and initial state
-    console.log('SMMO Scaler initialized', { 
-      CONFIG: CONFIG ? 'loaded' : 'missing',
-      logsAvailable: !!window.SMMO_ITEM_LOGS,
-      logsCount: (window.SMMO_ITEM_LOGS || []).length
-    });
 
     function parseNumber(value) {
       if (value == null || value === '') return null;
@@ -141,6 +134,14 @@
     function isMainOutputItem(item) {
       const slotKey = getSlotKey(item.slot);
       return !INTERESTING_TYPE_KEYS.has(slotKey) && !item.custom_item && !TOOL_SLOT_KEYS.has(slotKey);
+    }
+
+    function getOrderedSlotNames(slotsObj) {
+      return Object.keys(slotsObj).sort((a, b) => {
+        const idxA = SLOT_ORDER_MAP.has(a.toLowerCase()) ? SLOT_ORDER_MAP.get(a.toLowerCase()) : 999;
+        const idxB = SLOT_ORDER_MAP.has(b.toLowerCase()) ? SLOT_ORDER_MAP.get(b.toLowerCase()) : 999;
+        return idxA - idxB;
+      });
     }
 
     function pickBestItemsBySlot(items, sortMode) {
@@ -220,7 +221,6 @@
         const nextStates = [];
 
         for (const state of states) {
-          // Allow skipping a slot when budget cannot accommodate all types.
           nextStates.push(state);
 
           for (const it of slotOptions[i]) {
@@ -236,9 +236,6 @@
           }
         }
 
-        // Pareto frontier pruning: keep only states where no other state
-        // has both lower cost AND higher score (strictly dominated).
-        // Sort by cost ascending, then score descending for frontier extraction.
         nextStates.sort((a, b) => {
           if (a.cost !== b.cost) return a.cost - b.cost;
           if (b.score !== a.score) return b.score - a.score;
@@ -286,7 +283,7 @@
 
     function updateBudgetButtonLabel() {
       if (!budgetSortButton) return;
-      budgetSortButton.textContent = budgetCapEnabled ? 'Budget cap: On' : 'Budget cap: Off';
+      budgetSortButton.textContent = budgetCapEnabled ? 'Budget Cap: On' : 'Budget Cap: Off';
     }
 
     function recomputeAndRender() {
@@ -306,6 +303,7 @@
 
       const minPower = Number(minPowerInput.value) || 0;
       const usable = [];
+      const toolItems = [];
       for (const it of items) {
         if (!it || !it.id) continue;
         const cost = it.marketLow != null ? toFiniteNumber(it.marketLow, null) : (it.price != null ? toFiniteNumber(it.price, null) : null);
@@ -314,7 +312,11 @@
         if ((it.minLevel || 0) > level || cost > gold || it.power < minPower) continue;
         it.cost = cost;
         it.bestValue = cost > 0 ? it.power / cost : 0;
-        usable.push(it);
+        if (TOOL_SLOT_KEYS.has(getSlotKey(it.slot))) {
+          toolItems.push(it);
+        } else {
+          usable.push(it);
+        }
       }
 
       const unavailableItems = usable.filter(it => (it.cost || 0) === 0);
@@ -336,7 +338,7 @@
       if (copyButton) {
         copyButton.disabled = renderAvailableItems.length === 0 && unavailableItems.length === 0;
       }
-      renderResults(renderAvailableItems, unavailableItems);
+      renderResults(renderAvailableItems, unavailableItems, toolItems);
     }
 
     function resetUiState() {
@@ -350,7 +352,7 @@
       }
       if (copyButton) {
         copyButton.disabled = true;
-        copyButton.textContent = 'Copy summary';
+        copyButton.textContent = 'Copy Summary';
       }
       summary.hidden = true;
       resultsList.hidden = true;
@@ -439,7 +441,6 @@
       const isCollectable = slotName === 'Collectable';
       const sortByPower = sortBy === 'power';
 
-      // Pre-compute custom tags for Collectable sort to avoid repeated toLowerCase/trim in comparator
       if (isCollectable) {
         for (const it of slotItems) {
           it._sortTag = normalizeCustomTag(it.customItemTag ?? it.custom_item);
@@ -489,11 +490,9 @@
       const custom_item = raw.custom_item || raw.customItem || raw.is_custom || raw.isCustom || null;
       const customItemTag = raw.custom_item_tag || raw.customItemTag || raw.item_tag || raw.itemTag || null;
       
-      // market-low can be named with hyphen or underscore in logs, or nested under market.low
       const marketLowRaw = raw['market-low'] ?? raw.market_low ?? raw.marketLow ?? (raw.market && raw.market.low);
       const marketLow = parseNumber(marketLowRaw);
       
-      // Calculate power based on stats: str = 1 point, def = configurable weight
       let power = 0;
       const stats = [];
       const statPairs = [
@@ -513,7 +512,6 @@
         if (statKey === 'str') power += modifier * 1;
         else if (statKey === 'def') power += modifier * defWeight;
         else if (statKey === 'crit' && includeCritBonus) {
-          // Formula: Player Level x 2 x Crit Value/1000
           power += playerLevel * 2 * (modifier / 1000);
         }
       }
@@ -546,7 +544,7 @@
       }
     });
 
-    function renderResults(availableItems, unavailableItems = []) {
+    function renderResults(availableItems, unavailableItems = [], toolItems = []) {
       try {
         resultsList.innerHTML = '';
         if (availableItems.length === 0 && unavailableItems.length === 0) {
@@ -557,34 +555,27 @@
           summary.hidden = false;
           resultsList.hidden = false;
           
-          // Filter out interesting item types from main output
           const mainAvailableItems = availableItems.filter(isMainOutputItem);
           const mainUnavailableItems = unavailableItems.filter(isMainOutputItem);
           
-          // Render available items (cost > 0) - excluding interesting types
           if (mainAvailableItems.length > 0) {
-            // Group items by slot and get top 5 for each slot
             const slots = {};
             for (const it of mainAvailableItems) {
               if (!slots[it.slot]) slots[it.slot] = [];
               slots[it.slot].push(it);
             }
             
-            // Sort each slot by current sortBy mode and take top 5
             let totalItems = 0;
-            for (const slotName in slots) {
+            for (const slotName of getOrderedSlotNames(slots)) {
               const slotItems = slots[slotName];
-              
-              // Sort by current sortBy mode
+
               sortSlotItems(slotItems, slotName);
 
               totalItems += renderSlotGroup(resultsList, slotName, slotItems);
             }
             
-            // Update summary with total count
             slotsFilled.textContent = totalItems;
           } else {
-            // No available items, show message
             const noAvailableMsg = document.createElement('div');
             noAvailableMsg.className = 'noItemsMsg';
             noAvailableMsg.textContent = 'No items with estimated cost available.';
@@ -592,9 +583,7 @@
             slotsFilled.textContent = 0;
           }
           
-          // Render unavailable items section (cost = 0) - excluding interesting types
           if (mainUnavailableItems.length > 0) {
-            // Create folding menu for unavailable items
             const unavailableSection = document.createElement('details');
             unavailableSection.className = 'unavailableSection';
             
@@ -609,29 +598,26 @@
             
             resultsList.appendChild(unavailableSection);
             
-            // Group unavailable items by slot and get top 5 for each slot
             const unavailableSlots = {};
             for (const it of mainUnavailableItems) {
               if (!unavailableSlots[it.slot]) unavailableSlots[it.slot] = [];
               unavailableSlots[it.slot].push(it);
             }
             
-            // Sort each slot by current sortBy mode and take top 5
-            for (const slotName in unavailableSlots) {
+            for (const slotName of getOrderedSlotNames(unavailableSlots)) {
               const slotItems = unavailableSlots[slotName];
-              
-              // Sort by current sortBy mode
+
               sortSlotItems(slotItems, slotName);
 
               renderSlotGroup(unavailableContent, slotName, slotItems);
             }
           }
           
-          // Render interesting items section
           const interestingAvailableItems = availableItems.filter(it => !isMainOutputItem(it));
           const interestingUnavailableItems = unavailableItems.filter(it => !isMainOutputItem(it));
           renderInterestingItems(interestingAvailableItems, interestingUnavailableItems);
-          
+          renderToolItems(toolItems);
+
           statusEl.textContent = 'Ready.';
         }
       } catch (e) {
@@ -644,7 +630,6 @@
       try {
         interestingItemsList.innerHTML = '';
         
-        // Combine available and unavailable interesting items
         const allInterestingItems = [...availableItems, ...unavailableItems];
         
         if (allInterestingItems.length === 0) {
@@ -652,24 +637,47 @@
           return;
         }
         
-        // Group items by slot
         const slots = {};
         for (const it of allInterestingItems) {
           if (!slots[it.slot]) slots[it.slot] = [];
           slots[it.slot].push(it);
         }
         
-        // Sort each slot by current sortBy mode and render all items (no limit)
-        for (const slotName in slots) {
+        for (const slotName of getOrderedSlotNames(slots)) {
           const slotItems = slots[slotName];
           
-          // Sort by current sortBy mode
           sortSlotItems(slotItems, slotName);
 
           renderSlotGroup(interestingItemsList, slotName, slotItems);
         }
       } catch (e) {
         console.error('Error rendering interesting items:', e);
+      }
+    }
+
+    function renderToolItems(items) {
+      if (!toolItemsList) return;
+      try {
+        toolItemsList.innerHTML = '';
+
+        if (items.length === 0) {
+          toolItemsList.innerHTML = '<div class="noItemsMsg">No tools found.</div>';
+          return;
+        }
+
+        const slots = {};
+        for (const it of items) {
+          if (!slots[it.slot]) slots[it.slot] = [];
+          slots[it.slot].push(it);
+        }
+
+        for (const slotName of getOrderedSlotNames(slots)) {
+          const slotItems = slots[slotName];
+          sortSlotItems(slotItems, slotName);
+          renderSlotGroup(toolItemsList, slotName, slotItems);
+        }
+      } catch (e) {
+        console.error('Error rendering tool items:', e);
       }
     }
 
@@ -774,7 +782,6 @@
 
     sortButton.addEventListener('click', () => {
       try {
-        // Toggle between power and value sort
         sortBy = sortBy === 'power' ? 'value' : 'power';
         const label = sortBy === 'power' ? 'Sort by: Power' : 'Sort by: Value';
         sortButton.textContent = label;
@@ -806,7 +813,7 @@
           copyButton.textContent = 'Copied!';
           statusEl.textContent = 'Summary copied to clipboard.';
           window.setTimeout(() => {
-            copyButton.textContent = 'Copy summary';
+            copyButton.textContent = 'Copy Summary';
           }, 1400);
         } catch (e) {
           console.error('Error copying summary:', e);

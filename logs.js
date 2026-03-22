@@ -1,6 +1,3 @@
-/* Minimal logs file for SMMO Scaler
- * This file is safe to publish: it only defines a client-side log array.
- */
 (function attachLogs(global) {
   const STORAGE_KEY = 'smmoscaler_logs_v1';
 
@@ -17,7 +14,6 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
     } catch (e) {
-      // ignore
     }
   }
 

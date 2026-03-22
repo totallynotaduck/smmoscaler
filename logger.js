@@ -1,8 +1,3 @@
-/* Minimal logger helper
- * - Start logging: adds up to 40 new (simulated) log entries from CONFIG.ITEM_IDS,
- *   avoiding duplicates.
- * - Download logs: exports `SMMO_ITEM_LOGS` as JSON.
- */
 (function attachLogger(global) {
   function qs(id) { return document.getElementById(id); }
   const IMPORTED_IDS_STORAGE_KEY = 'smmoscaler_imported_ids_v1';
@@ -24,7 +19,6 @@
       const arr = Array.from(idSet || []).map(x => String(x)).filter(Boolean);
       localStorage.setItem(IMPORTED_IDS_STORAGE_KEY, JSON.stringify(arr));
     } catch (e) {
-      // ignore storage failures
     }
   }
 
@@ -32,22 +26,17 @@
     const source = String(text || '').trim();
     if (!source) throw new Error('JSON is empty.');
 
-    // 1) Strict JSON first.
     try {
       return JSON.parse(source);
     } catch (firstErr) {
-      // continue with fallbacks
     }
 
-    // 2) Allow trailing commas before } or ].
     try {
       const withoutTrailingCommas = source.replace(/,\s*([}\]])/g, '$1');
       return JSON.parse(withoutTrailingCommas);
     } catch (secondErr) {
-      // continue with fallbacks
     }
 
-    // 3) NDJSON / JSON lines support (one JSON value per line).
     const lines = source
       .split(/\r?\n/)
       .map(line => line.trim())
@@ -56,11 +45,9 @@
       try {
         return lines.map(line => JSON.parse(line));
       } catch (thirdErr) {
-        // continue with fallbacks
-      }
+        }
     }
 
-    // 4) Concatenated top-level objects/arrays without commas.
     try {
       const merged = source
         .replace(/}\s*{/g, '},{')
@@ -114,7 +101,6 @@
   }
 
   function mergeLogEntries(existing, incomingEntries) {
-    // Build seen set in one pass - extractId called once per existing entry
     const seen = new Set();
     for (let i = 0; i < existing.length; i++) {
       const id = extractId(existing[i]);
@@ -148,25 +134,20 @@
     return { merged, imported };
   }
 
-  // --- Shared fetch helpers (used by start-logging, update-db, update-imported) ---
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  // Rate limiter: tracks API calls to stay within 40/min.
-  // Uses a sliding window of timestamps with an index pointer (O(1) pruning).
   const RATE_LIMIT = 40;
   const RATE_WINDOW_MS = 60000;
   const MIN_INTERVAL_MS = Math.ceil(RATE_WINDOW_MS / RATE_LIMIT); // 1500ms
   const callTimestamps = [];
-  let callTsOldest = 0; // index pointer - avoids O(n) shift()
+  let callTsOldest = 0;
 
   async function rateLimitWait(statusEl) {
     const now = Date.now();
-    // Prune timestamps older than the window by advancing index
     while (callTsOldest < callTimestamps.length && callTimestamps[callTsOldest] <= now - RATE_WINDOW_MS) {
       callTsOldest++;
     }
-    // Compact array periodically to avoid unbounded memory growth
     if (callTsOldest > 100) {
       callTimestamps.splice(0, callTsOldest);
       callTsOldest = 0;
@@ -175,16 +156,14 @@
     const activeCount = callTimestamps.length - callTsOldest;
 
     if (activeCount >= RATE_LIMIT) {
-      // Wait until the oldest active call falls outside the window
       const waitUntil = callTimestamps[callTsOldest] + RATE_WINDOW_MS;
-      const waitMs = waitUntil - now + 100; // +100ms safety margin
+      const waitMs = waitUntil - now + 100;
       if (statusEl) {
         statusEl.textContent = `Rate limit reached (${RATE_LIMIT}/min). Waiting ${Math.ceil(waitMs / 1000)}s…`;
       }
       console.debug('logger: rate limit wait', { waitMs, callsInWindow: activeCount });
       await sleep(waitMs);
     } else if (callTimestamps.length > 0) {
-      // Enforce minimum interval between calls
       const lastCall = callTimestamps[callTimestamps.length - 1];
       const elapsed = now - lastCall;
       if (elapsed < MIN_INTERVAL_MS) {
@@ -202,8 +181,7 @@
       const resp = await fetch(url, options);
       recordApiCall();
 
-      // Read rate limit headers from the API
-      const remaining = resp.headers && typeof resp.headers.get === 'function'
+        const remaining = resp.headers && typeof resp.headers.get === 'function'
         ? resp.headers.get('X-RateLimit-Remaining')
         : null;
       const retryAfter = resp.headers && typeof resp.headers.get === 'function'
@@ -260,7 +238,6 @@
     };
   }
 
-  // Build the request for a specific auth method.
   function buildAuthRequest(ctx, id, url, signal, authMethod) {
     const headers = { 'Accept': 'application/json' };
     let requestUrl = url;
@@ -283,7 +260,6 @@
       return { url: requestUrl, options };
     }
 
-    // For non-body POST, add id in body if endpoint doesn't include {id}
     if (ctx.method === 'POST' && !ctx.endpointTemplate.includes('{id}') && authMethod !== 'body') {
       headers['Content-Type'] = 'application/json';
       options.body = JSON.stringify({ id });
@@ -292,7 +268,6 @@
     return { url: requestUrl, options };
   }
 
-  // Determine which auth methods to try based on config, in priority order.
   function getAuthMethodOrder(ctx) {
     const methods = [];
     if (ctx.apiKeyMode === 'body' && ctx.method === 'POST') {
@@ -305,10 +280,8 @@
     } else if (ctx.apiKeyMode === 'query') {
       methods.push('query');
     }
-    // Add remaining methods as fallbacks
     for (const m of ['body', 'header', 'bearer', 'query']) {
       if (!methods.includes(m)) {
-        // Only add 'body' for POST endpoints
         if (m === 'body' && ctx.method !== 'POST') continue;
         methods.push(m);
       }
@@ -316,11 +289,7 @@
     return methods;
   }
 
-  // Fetch a single item with auth discovery on first call, then locked auth for subsequent calls.
-  // Returns { ok, data, error, status, rateLimited }
-  // Mutates ctx.lockedAuthMethod once auth is discovered.
   async function fetchWithAuth(ctx, id, url, signal, statusEl) {
-    // If we already know the working auth method, use only that.
     if (ctx.lockedAuthMethod) {
       await rateLimitWait(statusEl);
       const req = buildAuthRequest(ctx, id, url, signal, ctx.lockedAuthMethod);
@@ -328,7 +297,6 @@
 
       if (res.ok) return { ok: true, data: res.data, used: ctx.lockedAuthMethod };
 
-      // Handle rate limiting with backoff
       if (res.status === 429) {
         return await handleRateLimit(res, req, ctx.lockedAuthMethod, statusEl);
       }
@@ -336,7 +304,6 @@
       return { ok: false, error: res.error, status: res.status };
     }
 
-    // Auth discovery: try methods in order, but each attempt costs an API call.
     const methods = getAuthMethodOrder(ctx);
     for (const method of methods) {
       await rateLimitWait(statusEl);
@@ -344,7 +311,6 @@
       const res = await fetchItem(req.url, req.options);
 
       if (res.ok) {
-        // Lock this auth method for all future calls
         ctx.lockedAuthMethod = method;
         console.debug('logger: auth discovered, locking method:', method);
         return { ok: true, data: res.data, used: method };
@@ -354,13 +320,11 @@
         return await handleRateLimit(res, req, method, statusEl);
       }
 
-      // 401 = wrong auth method, try next
       if (res.status === 401) {
         console.debug('logger: 401 for auth method:', method, '- trying next');
         continue;
       }
 
-      // Any other error, stop trying
       return { ok: false, error: res.error, status: res.status };
     }
 
@@ -384,7 +348,6 @@
           }
         }
       }
-      // Fall back to exponential backoff
       if (!waitMs || waitMs <= 0) {
         waitMs = Math.min(120000, RATE_WINDOW_MS * Math.pow(1.5, attempt));
       }
@@ -408,8 +371,6 @@
     return { ok: false, status: 429, rateLimited: true, error: new Error('HTTP 429 - rate limit retries exhausted') };
   }
 
-  // Batched localStorage writes: update the in-memory array immediately,
-  // but only flush to localStorage every FLUSH_INTERVAL items or FLUSH_MS.
   const FLUSH_INTERVAL = 50;
   const FLUSH_MS = 30000;
   let pendingFlush = 0;
@@ -445,7 +406,6 @@
       logs.push(entry);
     }
 
-    // Update in-memory reference without localStorage write
     global.SMMO_ITEM_LOGS = logs;
 
     const numId = parseInt(String(id)) || 0;
@@ -463,7 +423,6 @@
       : (global.SMMO_ITEM_LOGS || []);
   }
 
-  // --- File loading helpers ---
 
   async function fetchJsonIfPresent(filePath) {
     const isLocalFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
@@ -588,7 +547,6 @@
 
       if (indexedFiles) {
         console.debug('logger: using indexed files from smmoscaler-logs.index.json');
-        // Fetch all indexed files in parallel for faster loading
         const results = await Promise.allSettled(
           indexedFiles.map(filePath =>
             fetchJsonIfPresent(filePath).then(payload => ({ path: filePath, payload }))
@@ -658,13 +616,11 @@
     }
   }
 
-  // --- Shared fetch-loop runner ---
 
-  // Max consecutive 404s before stopping (avoids wasting calls past last real item)
   const MAX_CONSECUTIVE_404 = 50;
 
   async function runFetchLoop(pending, ctx, signal, statusEl, opts) {
-    const mode = (opts && opts.mode) || 'append'; // 'append' or 'replace'
+    const mode = (opts && opts.mode) || 'append';
 
     let added = 0;
     let skipped = 0;
@@ -691,7 +647,6 @@
           errors++;
           statusEl.textContent = `Rate limited while fetching ${id}. Retries exhausted.`;
         } else if (msg.includes('HTTP 404')) {
-          // Don't store null entries - just track the ID for resume
           const numId = parseInt(String(id)) || 0;
           if (numId > (global.LATEST_LOG_ITEM_ID || 0)) {
             global.LATEST_LOG_ITEM_ID = numId;
@@ -700,7 +655,6 @@
           consecutive404++;
           statusEl.textContent = `Item ${id} not found – skipping (${consecutive404} consecutive)`;
 
-          // Stop if too many consecutive 404s (likely past last real item)
           if (consecutive404 >= MAX_CONSECUTIVE_404) {
             statusEl.textContent = `Stopped - ${MAX_CONSECUTIVE_404} consecutive items not found (likely past last item). Added ${added}.`;
             console.debug('logger: stopping after consecutive 404s', { lastId: id, consecutive404, added, skipped });
@@ -715,13 +669,11 @@
       }
     }
 
-    // Flush any remaining buffered writes
     flushLogs();
 
     return { added, skipped, errors };
   }
 
-  // --- DOMContentLoaded: wire up UI ---
 
   document.addEventListener('DOMContentLoaded', async () => {
     const startBtn = qs('loggerStartButton');
@@ -739,14 +691,13 @@
       return (apiInput && apiInput.value || '').trim();
     }
 
-    // --- Start logging ---
 
     startBtn.addEventListener('click', async (ev) => {
       ev.preventDefault();
       if (running) {
         running = false;
         if (abortController) abortController.abort();
-        startBtn.textContent = 'Start logging';
+        startBtn.textContent = 'Start Logging';
         status.textContent = 'Stopping…';
         return;
       }
@@ -799,7 +750,7 @@
 
       running = true;
       abortController = new AbortController();
-      startBtn.textContent = 'Stop logging';
+      startBtn.textContent = 'Stop Logging';
       status.textContent = `Starting logging - ${pending.length} items available${statusMsg}.`;
 
       const result = await runFetchLoop(pending, ctx, abortController.signal, status, {
@@ -809,11 +760,10 @@
 
       running = false;
       abortController = null;
-      startBtn.textContent = 'Start logging';
+      startBtn.textContent = 'Start Logging';
       status.textContent = `Logging completed - added ${result.added} items.`;
     });
 
-    // --- Export ---
 
     exportBtn.addEventListener('click', (ev) => {
       ev.preventDefault();
@@ -829,7 +779,6 @@
       URL.revokeObjectURL(url);
     });
 
-    // --- Import ---
 
     const importBtn = qs('loggerImportButton');
     const importInput = qs('loggerImportInput');
@@ -886,7 +835,6 @@
       });
     }
 
-    // --- Update database ---
 
     const updateDbStartBtn = qs('updateDbStartButton');
     const updateDbStartIdInput = qs('updateDbStartIdInput');
@@ -912,7 +860,7 @@
       if (updateDbRunning) {
         updateDbRunning = false;
         if (updateDbAbortController) updateDbAbortController.abort();
-        updateDbStartBtn.textContent = 'Update database';
+        updateDbStartBtn.textContent = 'Update Database';
         updateDbStatus.textContent = 'Stopping…';
         return;
       }
@@ -937,7 +885,7 @@
 
       updateDbRunning = true;
       updateDbAbortController = new AbortController();
-      updateDbStartBtn.textContent = 'Stop updating';
+      updateDbStartBtn.textContent = 'Stop Updating';
       updateDbStatus.textContent = `Starting database update from ID ${startId}…`;
 
       const result = await runFetchLoop(pending, ctx, updateDbAbortController.signal, updateDbStatus, {
@@ -947,11 +895,10 @@
 
       updateDbRunning = false;
       updateDbAbortController = null;
-      updateDbStartBtn.textContent = 'Update database';
+      updateDbStartBtn.textContent = 'Update Database';
       updateDbStatus.textContent = `Database update completed - updated ${result.added}, skipped ${result.skipped}, errors ${result.errors}.`;
     });
 
-    // --- Update imported IDs ---
 
     if (updateImportedStartBtn && updateImportedStatus) {
       updateImportedStartBtn.addEventListener('click', async (ev) => {
@@ -959,7 +906,7 @@
         if (updateImportedRunning) {
           updateImportedRunning = false;
           if (updateImportedAbortController) updateImportedAbortController.abort();
-          updateImportedStartBtn.textContent = 'Update imported IDs';
+          updateImportedStartBtn.textContent = 'Update Imported IDs';
           updateImportedStatus.textContent = 'Stopping…';
           return;
         }
@@ -985,7 +932,7 @@
 
         updateImportedRunning = true;
         updateImportedAbortController = new AbortController();
-        updateImportedStartBtn.textContent = 'Stop imported update';
+        updateImportedStartBtn.textContent = 'Stop Imported Update';
         updateImportedStatus.textContent = `Starting imported ID update (${idsToUpdate.length} IDs)…`;
 
         const result = await runFetchLoop(idsToUpdate, ctx, updateImportedAbortController.signal, updateImportedStatus, {
@@ -995,12 +942,11 @@
 
         updateImportedRunning = false;
         updateImportedAbortController = null;
-        updateImportedStartBtn.textContent = 'Update imported IDs';
+        updateImportedStartBtn.textContent = 'Update Imported IDs';
         updateImportedStatus.textContent = `Imported ID update completed - updated ${result.added}, skipped ${result.skipped}, errors ${result.errors}.`;
       });
     }
 
-    // --- Upload custom IDs for imported-ID updates ---
 
     if (updateImportedUploadBtn && updateImportedUploadInput && updateImportedStatus) {
       updateImportedUploadBtn.addEventListener('click', (ev) => {
