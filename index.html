@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
 
@@ -21,332 +21,360 @@
   </head>
   <body>
     <div class="app">
+
+      <!-- Header -->
       <header class="header">
         <div class="brand">
           <img
             class="logo"
             src="./icon.png"
             alt="SMMO Scaler icon"
-            width="44"
-            height="44"
+            width="40"
+            height="40"
           />
-          <div>
-            <h1>SMMO Scaler -by Alpha ❤️</h1>
-            <p class="subtitle">Best purchasable gear for your level + gold.</p>
+          <div class="brandText">
+            <h1>SMMO Scaler</h1>
+            <p class="subtitle">by <a href="https://web.simple-mmo.com/user/view/28790" target="_blank" rel="noopener noreferrer" class="subtitleLink">Alpha</a></p>
           </div>
         </div>
-        <div class="meta">
-          <span class="pill" id="configStatus">Config: loading…</span>
+        <div class="headerRight">
+          <button type="button" class="aboutToggle" id="aboutToggle" aria-label="About this tool">?</button>
         </div>
+        <div id="configStatus" hidden></div>
       </header>
 
-      <main class="card">
-        <div class="cardColumn cardColumn--left">
-        <form id="optimizerForm" class="form" novalidate>
-          <div class="grid">
-            <label class="field">
-              <span class="label">Player level</span>
-              <input
-                id="levelInput"
-                name="level"
-                inputmode="numeric"
-                type="number"
-                min="1"
-                step="1"
-                value="1"
-                required
-              />
-            </label>
-
-            <label class="field">
-              <span class="label">Available gold</span>
-              <input
-                id="goldInput"
-                name="gold"
-                inputmode="numeric"
-                type="number"
-                min="0"
-                step="1"
-                value="0"
-                required
-              />
-            </label>
-
-            <label class="field">
-              <span class="label">Minimum power</span>
-              <input
-                id="minPowerInput"
-                name="minPower"
-                inputmode="numeric"
-                type="number"
-                min="0"
-                step="0.1"
-                value="0"
-              />
-            </label>
-
-            <label class="field">
-              <span class="labelRow">
-                <span class="label">DEF weight</span>
-                <span class="fieldValue" id="defWeightValue">0.30</span>
-              </span>
-              <input
-                id="defWeightInput"
-                name="defWeight"
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value="0.3"
-              />
-            </label>
-
-            <label class="field checkbox-field">
-              <input
-                id="specialAttacksCheckbox"
-                name="specialAttacks"
-                type="checkbox"
-              />
-              <span class="label">Special Attacks</span>
-            </label>
+      <!-- About Panel -->
+      <div id="aboutPanel" class="aboutPanel" hidden>
+        <div class="aboutPanelContent">
+          <div class="aboutCreator">
+            Created by <a href="https://web.simple-mmo.com/user/view/28790" target="_blank" rel="noopener noreferrer" class="creditLink"><strong>Alpha</strong></a>
           </div>
-
-          <div class="actions">
-            <button id="runButton" class="primary" type="submit">
-              Find Best Gear
-            </button>
-            <button id="resetButton" class="ghost" type="button">Reset</button>
-          </div>
-
-          <div class="hint">
-            <details>
-              <summary>How it works</summary>
-              <div class="hintBody">
-                <ol>
-                  <li>Input your level and budget in gold.</li>
-                  <li>The tool will list the top 5 items ranked by total Power (higher power = better item).</li>
-                  <li>Toggle between sorting by most power or best value to find the best bang-for-buck equipment.</li>
-                  <li>Power Calculation:
-                    <ul>
-                      <li>Strength = 1 point</li>
-                      <li>Defence = DEF weight slider (default 0.30)</li>
-                      <li>Crit% = Level × 2 points (when special attacks are toggled)</li>
-                    </ul>
-                  </li>
-                  <li>Special Attacks: Considers Crit-based Gear and determines the best Crit gear for your current level.</li>
-                  <li>Unavailable items: Potentially better, but not found in market.</li>
-                  <li>Interesting Items: Non-equipment items.</li>
-                  <li>Available Gold applies to per-item, hence estimated cost is for all items.</li>
-                  <li>Data is a rough estimate based off the last database update :)</li>
-                </ol>
-              </div>
-            </details>
-          </div>
-        </form>
-
-        <section class="results">
-          <div class="statusRow">
-            <div id="status" class="status" role="status" aria-live="polite">
-              Ready.
-            </div>
-            <div class="statusActions">
-              <button id="sortButton" class="ghost small" type="button" disabled>
-                Sort by: Power
-              </button>
-              <button id="budgetSortButton" class="ghost small" type="button" disabled>
-                Budget cap: Off
-              </button>
-              <button id="copyButton" class="ghost small" type="button" disabled>
-                Copy summary
-              </button>
-            </div>
-          </div>
-
-          <div id="error" class="error" role="alert" hidden></div>
-
-          <div id="summary" class="summary" hidden>
-            <div class="summaryItem">
-              <div class="summaryLabel">Estimated Cost</div>
-              <div class="summaryValue" id="totalCost">—</div>
-            </div>
-            <div class="summaryItem">
-              <div class="summaryLabel">Equipment Strength</div>
-              <div class="summaryValue" id="totalPower">—</div>
-            </div>
-            <div class="summaryItem">
-              <div class="summaryLabel">Items available</div>
-              <div class="summaryValue" id="slotsFilled">—</div>
-            </div>
-          </div>
-
-          <div id="resultsList" class="resultsList" hidden></div>
-        </section>
-
-        <section class="interesting-items" aria-labelledby="interestingItemsTitle">
-          <details id="interestingItemsSection">
-            <summary id="interestingItemsTitle" class="interestingItemsTitle">Interesting items</summary>
-            <div class="interestingItemsContent">
-              <div id="interestingItemsList" class="interestingItemsList"></div>
-            </div>
-          </details>
-        </section>
-
-        </div>
-
-        <div class="cardColumn cardColumn--right">
-
-        <section class="logger" aria-labelledby="loggerTitle">
-          <h2 id="loggerTitle" class="loggerTitle">Item log helper</h2>
-          <p class="loggerHelp">
-            Use your SimpleMMO public API key to automatically fetch item
-            details and append them to the local log. The tool will request up
-            to 40 new item IDs every minute, going through unlogged IDs in
-            order and avoiding duplicates.
-          </p>
-          <div class="loggerRow">
-            <label class="field loggerField">
-              <span class="label">Public API key for logging</span>
-              <input
-                id="loggerApiKeyInput"
-                name="loggerApiKey"
-                type="password"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </label>
-            <div class="loggerButtons">
-                <button id="loggerStartButton" class="primary small" type="button">
-                  Start logging
-                </button>
-                <button id="loggerExportButton" class="ghost small" type="button">
-                  Download logs
-                </button>
-                <button id="loggerImportButton" class="ghost small" type="button">
-                  Import logs
-                </button>
-                <input id="loggerImportInput" type="file" accept="application/json" style="display:none" />
-            </div>
-          </div>
-          <div
-            id="loggerStatus"
-            class="status loggerStatus"
-            role="status"
-            aria-live="polite"
-          >
-            Logger idle.
-          </div>
-        </section>
-
-        <section class="logger" aria-labelledby="updateDbTitle">
-          <h2 id="updateDbTitle" class="loggerTitle">Update database</h2>
-          <p class="loggerHelp">
-            Fetch item details starting from a specific item ID and replace existing entries with the same ID.
-          </p>
-          <div class="loggerRow">
-            <label class="field loggerField">
-              <span class="label">Start from item ID</span>
-              <input
-                id="updateDbStartIdInput"
-                name="updateDbStartId"
-                type="number"
-                min="1"
-                step="1"
-                value="1"
-              />
-            </label>
-            <div class="loggerButtons">
-                <button id="updateDbStartButton" class="primary small" type="button">
-                  Update database
-                </button>
-            </div>
-          </div>
-          <div
-            id="updateDbStatus"
-            class="status loggerStatus"
-            role="status"
-            aria-live="polite"
-          >
-            Database update idle.
-          </div>
-        </section>
-
-        <section class="logger" aria-labelledby="updateImportedTitle">
-          <h2 id="updateImportedTitle" class="loggerTitle">Update imported IDs only</h2>
-          <p class="loggerHelp">
-            Refreshes only item IDs from your latest imported JSON file by calling the API and replacing those entries. (Credit to Khao)
-          </p>
-          <div class="loggerRow">
-            <div class="loggerButtons">
-              <button id="updateImportedStartButton" class="primary small" type="button">
-                Update imported IDs
-              </button>
-              <button id="updateImportedUploadButton" class="ghost small" type="button">
-                Upload custom IDs JSON
-              </button>
-              <input id="updateImportedUploadInput" type="file" accept="application/json" style="display:none" />
-            </div>
-          </div>
-          <div
-            id="updateImportedStatus"
-            class="status loggerStatus"
-            role="status"
-            aria-live="polite"
-          >
-            Imported IDs update idle.
-          </div>
-        </section>
-
-        <section class="documentation" aria-labelledby="documentationTitle">
-          <h2 id="documentationTitle" class="documentationTitle">About This Tool</h2>
-          <div class="documentationContent">
-            <div class="creatorInfo">
-              <strong>Creator:</strong> Alpha (User ID: 28790)
-            </div>
-            
-            <div class="toolDescription">
-              <h3>What This Tool Does</h3>
-              <p>This tool is a gear optimization calculator designed to help SimpleMMO players find the best equipment for their level and budget. It analyzes available items and ranks them by total power to help you make informed purchasing decisions.</p>
-            </div>
-
-            <div class="features">
+          <p>A gear optimization calculator for SimpleMMO players. Analyzes available items and ranks them by power to help you make informed purchasing decisions.</p>
+          <div class="aboutColumns">
+            <div>
               <h3>Key Features</h3>
               <ul>
-                <li><strong>Gear Optimization:</strong> Calculates the best equipment based on your level and available gold</li>
-                <li><strong>Power Calculation:</strong> Uses a sophisticated formula considering Strength, Defence, and Crit% values</li>
-                <li><strong>Special Attacks Support:</strong> Includes Crit-based gear analysis for players using special attacks</li>
-                <li><strong>API Calling:</strong> Futureproof logging capabilities, runs locally, hassle-free</li>
-                <li><strong>Community Database:</strong> New items are automatically discovered and can be maintained by the community</li>
+                <li>Calculates the best equipment based on your level and gold</li>
+                <li>Power formula considers Strength, Defence, and Crit% values</li>
+                <li>Configurable stat weights with presets</li>
+                <li>Local API logging - futureproof and hassle-free</li>
+                <li>Community-maintained item database</li>
               </ul>
             </div>
-
-            <div class="development">
-              <h3>Development</h3>
-              <p>This is my first tool created for the SimpleMMO community. Developed with VSCode and GitHub Copilot assistance, it represents a passion project aimed at improving the gaming experience for fellow players.</p>
-            </div>
-
-            <div class="philosophy">
-              <h3>Philosophy & Support</h3>
-              <p>I strongly believe in open-source development and community collaboration. This tool is completely free to use and I hope it can be sustained and improved by the community. The database can be maintained by anyone, anywhere, ensuring the tool stays current with game updates.</p>
-              <p>If you find this tool useful, a simple thank you would make my day! Your feedback and support help keep this project alive.</p>
-            </div>
-
-            <div class="techStack">
-              <h3>Technology Stack</h3>
-              <p>Built with JavaScript, CSS, and a lot of ❤️</p>
+            <div>
+              <h3>Open Source</h3>
+              <p>This tool is free and open-source. The database can be maintained by anyone, ensuring it stays current with game updates. If you find it useful, a simple thank you makes my day!</p>
             </div>
           </div>
-        </section>
+        </div>
+      </div>
+
+      <!-- Main two-column layout -->
+      <div class="layout">
+
+        <!-- Left: Optimizer -->
+        <div class="layoutMain">
+
+          <!-- Form Card -->
+          <section class="panel">
+            <div class="panelHeader">
+              <h2 class="panelTitle">Gear Optimizer</h2>
+              <p class="panelDesc">Find the best purchasable gear for your level and gold.</p>
+            </div>
+            <form id="optimizerForm" class="form" novalidate>
+              <div class="formGrid">
+                <label class="formField">
+                  <span class="formLabel">Player Level</span>
+                  <input
+                    id="levelInput"
+                    name="level"
+                    inputmode="numeric"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value="1"
+                    required
+                  />
+                </label>
+
+                <label class="formField">
+                  <span class="formLabel">Available Gold</span>
+                  <input
+                    id="goldInput"
+                    name="gold"
+                    inputmode="numeric"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value="0"
+                    required
+                  />
+                </label>
+
+                <label class="formField">
+                  <span class="formLabel">Minimum Power</span>
+                  <input
+                    id="minPowerInput"
+                    name="minPower"
+                    inputmode="numeric"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value="0"
+                  />
+                </label>
+
+              </div>
+
+              <details class="statWeights">
+                <summary class="statWeightsToggle">
+                  <span>Stat Weights</span>
+                  <div class="presetButtons">
+                    <button type="button" class="btn btn--sm presetBtn" data-preset="offensive">Offensive</button>
+                    <button type="button" class="btn btn--sm presetBtn" data-preset="balanced">Balanced</button>
+                    <button type="button" class="btn btn--sm presetBtn" data-preset="tank">Tank</button>
+                    <button type="button" class="btn btn--sm resetWeightsBtn" id="resetWeightsBtn" hidden>Reset</button>
+                  </div>
+                </summary>
+                <div class="statSliders">
+                  <label class="statSlider">
+                    <span class="statSliderRow">
+                      <span class="statSliderLabel">STR</span>
+                      <span class="formBadge" id="strWeightValue">1.00</span>
+                    </span>
+                    <input id="strWeightInput" name="strWeight" type="range" min="0" max="2" step="0.01" value="1" />
+                  </label>
+                  <label class="statSlider">
+                    <span class="statSliderRow">
+                      <span class="statSliderLabel">DEF</span>
+                      <span class="formBadge" id="defWeightValue">0.30</span>
+                    </span>
+                    <input id="defWeightInput" name="defWeight" type="range" min="0" max="2" step="0.01" value="0.3" />
+                  </label>
+                  <label class="statSlider">
+                    <span class="statSliderRow">
+                      <span class="statSliderLabel">Crit</span>
+                      <span class="formBadge" id="critWeightValue">0.00</span>
+                    </span>
+                    <input id="critWeightInput" name="critWeight" type="range" min="0" max="2" step="0.01" value="0" />
+                  </label>
+                </div>
+              </details>
+
+              <div class="formActions">
+                <button id="runButton" class="btn btn--primary" type="submit">
+                  Find Best Gear
+                </button>
+                <button id="resetButton" class="btn btn--ghost" type="button">Reset All</button>
+              </div>
+            </form>
+
+            <details class="howItWorks">
+              <summary>How It Works</summary>
+              <div class="howItWorksBody">
+                <ol>
+                  <li>Enter your level and how much gold you can spend per item.</li>
+                  <li>Adjust stat weights to match your playstyle, or pick a preset.</li>
+                  <li>Hit <strong>Find Best Gear</strong> to see the top 5 items per slot.</li>
+                  <li>Switch between <strong>Power</strong> (raw strength) and <strong>Value</strong> (best bang for your gold) sorting.</li>
+                  <li>Enable <strong>Budget Cap</strong> to find the best full loadout within your total gold.</li>
+                </ol>
+                <p><strong>Power formula:</strong> Each stat is multiplied by its weight slider. Crit uses <em>Level x 2 x (Crit / 1000) x Weight</em>.</p>
+                <p><strong>Unavailable</strong> items may be stronger but have no market listing. <strong>Tools</strong> and <strong>Interesting Items</strong> are shown in their own sections.</p>
+                <p>All data is estimated from the last database update.</p>
+              </div>
+            </details>
+          </section>
+
+          <!-- Results -->
+          <section class="panel">
+            <div class="resultsBar">
+              <div id="status" class="statusText" role="status" aria-live="polite">
+                Ready
+              </div>
+              <div class="resultsActions">
+                <button id="sortButton" class="btn btn--sm" type="button" disabled>
+                  Sort by: Power
+                </button>
+                <button id="budgetSortButton" class="btn btn--sm" type="button" disabled>
+                  Budget cap: Off
+                </button>
+                <button id="copyButton" class="btn btn--sm" type="button" disabled>
+                  Copy Summary
+                </button>
+              </div>
+            </div>
+
+            <div id="error" class="errorBox" role="alert" hidden></div>
+
+            <div id="summary" class="summaryRow" hidden>
+              <div class="statCard">
+                <div class="statLabel">Estimated Cost</div>
+                <div class="statValue" id="totalCost">-</div>
+              </div>
+              <div class="statCard">
+                <div class="statLabel">Equipment Strength</div>
+                <div class="statValue" id="totalPower">-</div>
+              </div>
+              <div class="statCard">
+                <div class="statLabel">Items Available</div>
+                <div class="statValue" id="slotsFilled">-</div>
+              </div>
+            </div>
+
+            <div id="resultsList" class="resultsList" hidden></div>
+          </section>
+
+          <!-- Tools -->
+          <section class="panel">
+            <details id="toolItemsSection">
+              <summary class="panelToggle">Tools</summary>
+              <div id="toolItemsList" class="toolItemsList">
+                <div class="noItemsMsg">Run a search to see available tools.</div>
+              </div>
+            </details>
+          </section>
+
+          <!-- Interesting Items -->
+          <section class="panel">
+            <details id="interestingItemsSection">
+              <summary class="panelToggle">Interesting Items</summary>
+              <div id="interestingItemsList" class="interestingItemsList">
+                <div class="noItemsMsg">Run a search to see interesting items.</div>
+              </div>
+            </details>
+          </section>
 
         </div>
-      </main>
 
+        <!-- Right: Tools sidebar -->
+        <aside class="layoutSide">
+
+          <!-- Logger -->
+          <section class="panel">
+            <div class="panelHeader panelHeader--compact">
+              <h2 class="panelTitle panelTitle--sm">Item Log Helper</h2>
+              <p class="panelDesc">
+                Automatically fetches and logs item data from the SimpleMMO API. Processes up to 40 items per minute and picks up where it left off.
+              </p>
+            </div>
+            <div class="toolForm">
+              <label class="formField">
+                <span class="formLabel">Public API Key</span>
+                <input
+                  id="loggerApiKeyInput"
+                  name="loggerApiKey"
+                  type="password"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </label>
+              <div class="toolButtons">
+                <button id="loggerStartButton" class="btn btn--primary btn--sm" type="button">
+                  Start Logging
+                </button>
+                <button id="loggerExportButton" class="btn btn--sm" type="button">
+                  Download Logs
+                </button>
+                <button id="loggerImportButton" class="btn btn--sm" type="button">
+                  Import Logs
+                </button>
+                <input id="loggerImportInput" type="file" accept="application/json" hidden />
+              </div>
+            </div>
+            <div id="loggerStatus" class="toolStatus" role="status" aria-live="polite">
+              Ready to fetch items
+            </div>
+          </section>
+
+          <!-- Update DB -->
+          <section class="panel">
+            <div class="panelHeader panelHeader--compact">
+              <h2 class="panelTitle panelTitle--sm">Update Database</h2>
+              <p class="panelDesc">
+                Re-fetches items starting from a given ID, replacing outdated entries with fresh data.
+              </p>
+            </div>
+            <div class="toolForm">
+              <label class="formField">
+                <span class="formLabel">Start From Item ID</span>
+                <input
+                  id="updateDbStartIdInput"
+                  name="updateDbStartId"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value="1"
+                />
+              </label>
+              <div class="toolButtons">
+                <button id="updateDbStartButton" class="btn btn--primary btn--sm" type="button">
+                  Update Database
+</button>
+              </div>
+            </div>
+            <div id="updateDbStatus" class="toolStatus" role="status" aria-live="polite">
+              Ready to update
+            </div>
+          </section>
+
+          <!-- Update Imported -->
+          <section class="panel">
+            <div class="panelHeader panelHeader--compact">
+              <h2 class="panelTitle panelTitle--sm">Update Imported IDs</h2>
+              <p class="panelDesc">
+                Re-fetches only the items from your last import to update their stats.
+                <span class="credit">(Credits to <a href="https://web.simple-mmo.com/user/view/852827" target="_blank" rel="noopener noreferrer" class="creditLink">KHAOTIK SERENITY</a>)</span>
+              </p>
+            </div>
+            <div class="toolForm">
+              <div class="toolButtons">
+                <button id="updateImportedStartButton" class="btn btn--primary btn--sm" type="button">
+                  Update Imported IDs
+                </button>
+                <button id="updateImportedUploadButton" class="btn btn--sm" type="button">
+                  Upload Custom IDs
+                </button>
+                <input id="updateImportedUploadInput" type="file" accept="application/json" hidden />
+              </div>
+            </div>
+            <div id="updateImportedStatus" class="toolStatus" role="status" aria-live="polite">
+              Ready to refresh imported items
+            </div>
+          </section>
+
+        </aside>
+      </div>
+
+      <!-- Footer -->
       <footer class="footer">
-        <span>
-          Static Github page. To data enthusiasts, please help maintain the dataset by logging new items, and re-logging old items to update their actual stats. Any help is much appreciated!
-        </span>
+        <p>
+          Built for <a href="https://web.simple-mmo.com/home" target="_blank" rel="noopener noreferrer" class="footerLink">SimpleMMO</a>. Data enthusiasts - please help maintain the dataset by logging new items and re-logging old items to update their stats.
+        </p>
       </footer>
+
     </div>
 
+    <script>
+      document.getElementById('aboutToggle').addEventListener('click', function() {
+        var panel = document.getElementById('aboutPanel');
+        var hidden = panel.hidden;
+        panel.hidden = !hidden;
+        this.classList.toggle('active', hidden);
+      });
+
+      document.querySelectorAll('details').forEach(function(el) {
+        el.querySelector('summary').addEventListener('click', function(ev) {
+          if (!el.open) return;
+          ev.preventDefault();
+          el.classList.add('closing');
+          setTimeout(function() {
+            el.classList.remove('closing');
+            el.open = false;
+          }, 180);
+        });
+      });
+    </script>
     <script src="./logs.js"></script>
     <script src="./config.js"></script>
     <script src="./app.js"></script>

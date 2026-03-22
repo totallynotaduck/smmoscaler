@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
-SQL_PATH = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(r"c:\Users\rvem\Downloads\items_backup.sql")
+SQL_PATH = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("items_backup.sql")
 LOGS_PATH = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).resolve().parent.parent / "smmoscaler-logs.json"
 
 INSERT_MARKERS = ["INSERT INTO `items` VALUES", "INSERT INTO items VALUES"]
@@ -237,6 +237,12 @@ def build_log_entry(cols, now_iso):
 
     equipable = to_int_or_none(cols[18])
 
+    level = to_int_or_none(cols[6])
+    value = to_int_or_none(cols[7])
+    custom_item = to_int_or_none(cols[14])
+    tradable = to_int_or_none(cols[15])
+    locked = to_int_or_none(cols[16])
+
     return {
         "id": item_id,
         "fetchedAt": to_iso_or_now(cols[22], cols[21], now_iso),
@@ -246,18 +252,18 @@ def build_log_entry(cols, now_iso):
             "type": to_title_case(cols[2]),
             "description": str(cols[4]) if cols[4] is not None else "",
             "equipable": str(equipable if equipable is not None else 0),
-            "level": to_int_or_none(cols[6]) if to_int_or_none(cols[6]) is not None else 1,
+            "level": level if level is not None else 1,
             "rarity": to_title_case(cols[3]),
-            "value": to_int_or_none(cols[7]) if to_int_or_none(cols[7]) is not None else 0,
+            "value": value if value is not None else 0,
             "stat1": stat1[0] if stat1 else None,
             "stat1modifier": stat1[1] if stat1 else None,
             "stat2": stat2[0] if stat2 else None,
             "stat2modifier": stat2[1] if stat2 else None,
             "stat3": stat3[0] if stat3 else None,
             "stat3modifier": stat3[1] if stat3 else None,
-            "custom_item": to_int_or_none(cols[14]) if to_int_or_none(cols[14]) is not None else 0,
-            "tradable": to_int_or_none(cols[15]) if to_int_or_none(cols[15]) is not None else 0,
-            "locked": to_int_or_none(cols[16]) if to_int_or_none(cols[16]) is not None else 0,
+            "custom_item": custom_item if custom_item is not None else 0,
+            "tradable": tradable if tradable is not None else 0,
+            "locked": locked if locked is not None else 0,
             "circulation": to_int_or_none(cols[12]),
             "market": market_obj,
             "image_url": str(cols[5]) if cols[5] is not None else None,
@@ -292,19 +298,25 @@ def main():
         raise ValueError("No INSERT INTO items VALUES blocks found in SQL file.")
 
     merged = list(existing)
-    seen = {entry_id for entry_id in (extract_entry_id(e) for e in existing) if entry_id}
+    seen = set()
+    for e in existing:
+        entry_id = extract_entry_id(e)
+        if entry_id:
+            seen.add(entry_id)
 
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     parsed_rows = 0
     added_rows = 0
+    bad_rows = 0
 
-    for block in blocks:
+    for block_idx, block in enumerate(blocks):
         tuples = parse_tuples_from_block(block)
-        for tuple_text in tuples:
+        for tuple_idx, tuple_text in enumerate(tuples):
             cols = parse_tuple_fields(tuple_text)
             parsed_rows += 1
             entry = build_log_entry(cols, now_iso)
             if not entry:
+                bad_rows += 1
                 continue
 
             entry_id = str(entry["id"])
@@ -323,6 +335,7 @@ def main():
         "existing": len(existing),
         "parsedRows": parsed_rows,
         "addedRows": added_rows,
+        "badRows": bad_rows,
         "total": len(merged),
     }
     print(json.dumps(result, indent=2))

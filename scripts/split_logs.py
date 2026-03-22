@@ -16,8 +16,12 @@ def entry_to_compact_bytes(entry):
 def compact_array_size(entries):
     if not entries:
         return 2
-    body = b",".join(entry_to_compact_bytes(e) for e in entries)
-    return len(body) + 2
+    total = 2
+    for i, e in enumerate(entries):
+        total += len(entry_to_compact_bytes(e))
+        if i > 0:
+            total += 1  # comma separator
+    return total
 
 
 def write_json_array(path: Path, entries):
@@ -31,7 +35,6 @@ def chunk_entries(entries, limit_bytes):
 
     for entry in entries:
         encoded = entry_to_compact_bytes(entry)
-        # [] plus entry, and comma if needed
         required = len(encoded) + (1 if current else 0)
 
         if current and current_size + required > limit_bytes:
@@ -113,8 +116,6 @@ def main():
         files.append(out_name)
         files_written.append(out_name)
 
-    # Keep source file synchronized to first chunk for compatibility only when split.
-    # The runtime loader prefers the index and will load all parts.
     write_json_array(source, chunks[0])
     files.insert(0, source.name)
 

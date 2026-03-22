@@ -4,121 +4,119 @@ on:
   push:
     paths:
       - 'smmoscaler-logs.json'
-      - '.github/workflows/split-and-release-logs.yml'
     branches:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: split-logs
+  cancel-in-progress: true
+
 jobs:
   split-and-release:
     runs-on: ubuntu-latest
-    
+
     permissions:
       contents: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
-      - name: Run split_logs.py
-        run: python scripts/split_logs.py
-
-      - name: Get the latest log file size
-        id: logsize
+      - name: Split logs
+        id: split
         run: |
-          SIZE=$(stat -f%z smmoscaler-logs.json 2>/dev/null || stat -c%s smmoscaler-logs.json 2>/dev/null)
-          SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
-          echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
-          echo "Log file size: ${SIZE_MB}MB"
+          python scripts/split_logs.py | tee split_output.json
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          cat split_output.json >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Prepare release files
-        id: prepare
+      - name: Gather release info
+        id: info
         run: |
-          # Get list of all log files for the release
-          LOG_FILES=$(ls smmoscaler-logs*.json 2>/dev/null | tr '\n' ' ')
-          echo "log_files=$LOG_FILES" >> $GITHUB_OUTPUT
-          
-          # Read the index to get version info
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          python3 << 'PYEOF'
+          import json, os, glob
 
-      - name: Create Release with Log Files
-        uses: softprops/action-gh-release@v1
+          split = json.loads(os.environ.get('SPLIT_RESULT', '{}'))
+          files = sorted(glob.glob('smmoscaler-logs*.json'))
+          total_bytes = sum(os.path.getsize(f) for f in files)
+          total_mb = f"{total_bytes / 1048576:.2f}"
+          file_count = len(files)
+          was_split = split.get('split', False)
+          chunk_count = split.get('chunks', 1)
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f"total_mb={total_mb}\n")
+              out.write(f"file_count={file_count}\n")
+              out.write(f"was_split={was_split}\n")
+              out.write(f"chunk_count={chunk_count}\n")
+              out.write(f"file_list={' '.join(files)}\n")
+
+          print(f"Files: {file_count}, Size: {total_mb}MB, Split: {was_split}")
+          PYEOF
+        env:
+          SPLIT_RESULT: ${{ steps.split.outputs.result }}
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: logs-${{ github.run_number }}
           name: "Log Release #${{ github.run_number }}"
           body: |
-            Automatically generated log release
-            
-            **Size:** ${{ steps.logsize.outputs.size_mb }}MB
-            **Updated:** ${{ steps.prepare.outputs.timestamp }}
-            
-            Includes split log files and index for cross-origin access via GitHub releases.
-          files: |
-            smmoscaler-logs*.json
-            smmoscaler-logs.index.json
-          draft: false
-          prerelease: false
+            **Size:** ${{ steps.info.outputs.total_mb }}MB across ${{ steps.info.outputs.file_count }} file(s)
+            **Split:** ${{ steps.info.outputs.was_split }} (${{ steps.info.outputs.chunk_count }} chunk(s))
+          files: ${{ steps.info.outputs.file_list }}
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update index to use release URLs
+      - name: Update index with release URLs
         run: |
-          python3 << 'EOF'
-          import json
-          import re
+          python3 << 'PYEOF'
+          import json, glob
           from pathlib import Path
-          
-          # Read current index
+
           index_path = Path("smmoscaler-logs.index.json")
-          with open(index_path, 'r', encoding='utf-8') as f:
-            index = json.load(f)
-          
-          # Get list of local log files
-          local_files = list(Path('.').glob('smmoscaler-logs*.json'))
-          local_names = [f.name for f in local_files if f.name != 'smmoscaler-logs.json']
-          local_names.insert(0, 'smmoscaler-logs.json')  # Base file first
-          
-          # Update index to use release CDN URLs
-          # Format: https://github.com/{owner}/{repo}/releases/download/{tag}/{filename}
+          index = json.loads(index_path.read_text(encoding="utf-8"))
+
           repo = "${{ github.repository }}"
           tag = "logs-${{ github.run_number }}"
-          
-          release_files = [
-            f"https://github.com/{repo}/releases/download/{tag}/{filename}"
-            for filename in local_names
-          ]
-          
-          index['files'] = release_files
-          index['updated'] = "${{ steps.prepare.outputs.timestamp }}"
-          index['source'] = 'github-releases'
-          
-          with open(index_path, 'w', encoding='utf-8') as f:
-            json.dump(index, f, indent=2, ensure_ascii=False)
-            f.write('\n')
-          
-          print(f"Updated index with {len(release_files)} files from release")
-          print(json.dumps(index, indent=2))
-          EOF
+          base_url = f"https://github.com/{repo}/releases/download/{tag}"
 
-      - name: Commit updated index
+          files = sorted(glob.glob("smmoscaler-logs*.json"))
+          files = [f for f in files if f != "smmoscaler-logs.index.json"]
+
+          if "smmoscaler-logs.json" in files:
+              files.remove("smmoscaler-logs.json")
+              files.insert(0, "smmoscaler-logs.json")
+
+          index["files"] = [f"{base_url}/{f}" for f in files]
+          index["source"] = "github-releases"
+
+          index_path.write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+          print(f"Updated index: {len(files)} files")
+          PYEOF
+
+      - name: Commit and push index
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add smmoscaler-logs.index.json
-          git commit -m "ci: update log index with release URLs (run ${{ github.run_number }})" || echo "No changes to commit"
+          git add smmoscaler-logs.index.json smmoscaler-logs*.json
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "ci: update log index [skip ci]"
           git push
 
-      - name: Post release summary
+      - name: Summary
         run: |
-          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Release:** logs-${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Size:** ${{ steps.logsize.outputs.size_mb }}MB" >> $GITHUB_STEP_SUMMARY
-          echo "- **Files:** $(echo '${{ steps.prepare.outputs.log_files }}' | wc -w)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Download:** https://github.com/${{ github.repository }}/releases/tag/logs-${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Log Release #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Size | ${{ steps.info.outputs.total_mb }}MB |" >> $GITHUB_STEP_SUMMARY
+          echo "| Files | ${{ steps.info.outputs.file_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Split | ${{ steps.info.outputs.was_split }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| [Release](https://github.com/${{ github.repository }}/releases/tag/logs-${{ github.run_number }}) | logs-${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY

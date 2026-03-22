@@ -53,8 +53,14 @@
     //
     // The optimizer will then use the returned minLevel/price/power values
     // to decide which items are best for a given level and gold budget.
-    // Here we generate the range 1–175142 inclusive.
-    ITEM_IDS: Array.from({ length: 175142 }, (_, i) => i + 1),
+    // Lazy range - generated on first access to avoid ~500KB upfront allocation.
+    // Returns an array of integers from 1 to 175142 inclusive.
+    get ITEM_IDS() {
+      const ids = Array.from({ length: 175142 }, (_, i) => i + 1);
+      // Replace getter with cached value after first access
+      Object.defineProperty(this, 'ITEM_IDS', { value: ids, writable: false, configurable: false });
+      return ids;
+    },
 
     // When resolving items by ID, app.js will construct the URL from
     // ITEM_BY_ID_ENDPOINT. For SimpleMMO this matches the documented endpoint:
@@ -69,14 +75,14 @@
     ITEM_BY_ID_METHOD: "POST",
 
     // Where/how to send the API key:
+    // - "body": includes api_key in the POST JSON body (SimpleMMO default)
     // - "header": sends `<API_KEY_HEADER_NAME>: <key>`
     // - "query": appends `?apiKey=<key>` (or `&apiKey=` if query already exists)
     //
-    // Adjust these three values to match the SimpleMMO docs for your key:
-    //   - SimpleMMO typically uses the "api_key" header
-    //   - Some APIs use a custom header (e.g. "X-API-Key")
-    //   - Others might expect "Authorization: Bearer <token>"
-    API_KEY_MODE: "header",
+    // SimpleMMO docs specify POST with api_key in the request body.
+    // The app will auto-discover the correct method if misconfigured,
+    // but setting this correctly avoids wasting API calls on auth discovery.
+    API_KEY_MODE: "body",
     API_KEY_HEADER_NAME: "api_key",
     API_KEY_QUERY_PARAM: "apiKey",
 
