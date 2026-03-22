@@ -28,6 +28,24 @@
     }
   }
 
+  function validateApiKey(rawValue) {
+    const apiKey = String(rawValue || '').trim();
+    if (!apiKey) {
+      return { ok: false, message: 'Provide a public API key.' };
+    }
+
+    // Public API keys should be a compact token, not pasted prose/list content.
+    if (/\s/.test(apiKey)) {
+      return { ok: false, message: 'API key looks invalid (contains spaces/newlines). Paste only your public API key.' };
+    }
+
+    if (apiKey.length < 8) {
+      return { ok: false, message: 'API key looks too short. Paste your full public API key.' };
+    }
+
+    return { ok: true, apiKey };
+  }
+
   function parseJsonFlexible(text) {
     const source = String(text || '').trim();
     if (!source) throw new Error('JSON is empty.');
@@ -411,8 +429,9 @@
         return;
       }
 
-      const apiKey = (apiInput && apiInput.value || '').trim();
-      if (!apiKey) { status.textContent = 'Provide a public API key to start logging.'; return; }
+      const keyCheck = validateApiKey(apiInput && apiInput.value);
+      if (!keyCheck.ok) { status.textContent = keyCheck.message; return; }
+      const apiKey = keyCheck.apiKey;
 
       const config = global.SMMO_SCALER_CONFIG || {};
       const base = (config.API_BASE_URL || 'https://api.simple-mmo.com/v1').replace(/\/$/, '');
@@ -751,8 +770,9 @@
         return;
       }
 
-      const apiKey = (apiInput && apiInput.value || '').trim();
-      if (!apiKey) { updateDbStatus.textContent = 'Provide a public API key to start updating database.'; return; }
+      const keyCheck = validateApiKey(apiInput && apiInput.value);
+      if (!keyCheck.ok) { updateDbStatus.textContent = keyCheck.message; return; }
+      const apiKey = keyCheck.apiKey;
 
       const startId = parseInt(updateDbStartIdInput.value, 10);
       if (!Number.isInteger(startId) || startId < 1) { updateDbStatus.textContent = 'Please enter a valid start item ID (>= 1).'; return; }
@@ -940,11 +960,12 @@
           return;
         }
 
-        const apiKey = (apiInput && apiInput.value || '').trim();
-        if (!apiKey) {
-          updateImportedStatus.textContent = 'Provide a public API key to start updating imported IDs.';
+        const keyCheck = validateApiKey(apiInput && apiInput.value);
+        if (!keyCheck.ok) {
+          updateImportedStatus.textContent = keyCheck.message;
           return;
         }
+        const apiKey = keyCheck.apiKey;
 
         const idsToUpdate = Array.from(importedIdsForUpdate)
           .map(id => toPositiveInt(id))
@@ -969,18 +990,19 @@
         updateImportedStatus.textContent = `Starting imported ID update (${idsToUpdate.length} IDs)…`;
 
         let updated = 0;
+        let added = 0;
         let skipped = 0;
         let errors = 0;
-        let preferredAuthLabel = 'initial';
+        let learnedAuthLabel = null;
 
         async function attemptFetchWithFallback(initialUrl, initialOptions, ctx) {
-          const attemptsByLabel = {};
-          attemptsByLabel.initial = { url: initialUrl, options: initialOptions, label: 'initial' };
+          const attempts = [];
+          attempts.push({ url: initialUrl, options: initialOptions, label: 'initial' });
 
           if (ctx.apiKeyMode === 'header' && String(ctx.apiKeyHeader).toLowerCase() !== 'authorization') {
             const h = Object.assign({}, initialOptions.headers || {});
             h['Authorization'] = ctx.apiKey.startsWith('Bearer ') ? ctx.apiKey : `Bearer ${ctx.apiKey}`;
-            attemptsByLabel.bearer = { url: initialUrl, options: Object.assign({}, initialOptions, { headers: h }), label: 'bearer' };
+            attempts.push({ url: initialUrl, options: Object.assign({}, initialOptions, { headers: h }), label: 'bearer' });
           }
 
           const paramName = (ctx.config && ctx.config.API_KEY_QUERY_PARAM) || 'apiKey';
@@ -989,30 +1011,29 @@
           if (!alreadyHasQueryAuth) {
             const sep = initialUrl.includes('?') ? '&' : '?';
             const urlWithQuery = `${initialUrl}${sep}${encodedParam}${encodeURIComponent(ctx.apiKey)}`;
-            attemptsByLabel.query = { url: urlWithQuery, options: initialOptions, label: 'query' };
+            attempts.push({ url: urlWithQuery, options: initialOptions, label: 'query' });
           }
 
           if ((ctx.method || 'POST').toUpperCase() === 'POST') {
             const opts = Object.assign({}, initialOptions);
             const h = Object.assign({}, opts.headers || {});
             h['Content-Type'] = 'application/json';
-            const bodySource = opts.body ? JSON.parse(opts.body) : {};
-            const body = Object.assign({}, bodySource, { api_key: ctx.apiKey });
+            const existingBody = opts.body ? JSON.parse(opts.body) : {};
+            const body = Object.assign({}, existingBody, { api_key: ctx.apiKey });
             opts.headers = h;
             opts.body = JSON.stringify(body);
-            if (!Object.prototype.hasOwnProperty.call(bodySource, 'api_key')) {
-              attemptsByLabel.body = { url: initialUrl, options: opts, label: 'body' };
+            if (!Object.prototype.hasOwnProperty.call(existingBody, 'api_key')) {
+              attempts.push({ url: initialUrl, options: opts, label: 'body' });
             }
           }
 
-          const fallbackOrder = ['initial', 'bearer', 'query', 'body'].filter(label => attemptsByLabel[label]);
-          const preferred = ctx.preferredAuthLabel;
-          const orderedLabels = (preferred && attemptsByLabel[preferred])
-            ? [preferred].concat(fallbackOrder.filter(label => label !== preferred))
-            : fallbackOrder;
+          const orderedAttempts = ctx.preferredLabel
+            ? attempts
+                .filter(a => a.label === ctx.preferredLabel)
+                .concat(attempts.filter(a => a.label !== ctx.preferredLabel))
+            : attempts;
 
-          for (const label of orderedLabels) {
-            const a = attemptsByLabel[label];
+          for (const a of orderedAttempts) {
             const maxRateLimitRetries = 5;
             for (let rateTry = 0; rateTry <= maxRateLimitRetries; rateTry++) {
               const res = await fetchItem(a.url, a.options);
@@ -1080,10 +1101,10 @@
           }
 
           updateImportedStatus.textContent = `Refreshing imported ID ${idStr}…`;
-          const ctx = { apiKeyMode, apiKeyHeader, apiKey, config, method, preferredAuthLabel };
+          const ctx = { apiKeyMode, apiKeyHeader, apiKey, config, method, preferredLabel: learnedAuthLabel };
           const attemptResult = await attemptFetchWithFallback(requestUrl, options, ctx);
           if (attemptResult.ok) {
-            if (attemptResult.used) preferredAuthLabel = attemptResult.used;
+            if (attemptResult.used) learnedAuthLabel = attemptResult.used;
             const entry = { id: id, fetchedAt: new Date().toISOString(), item: attemptResult.data };
             const logs = (global.SMMO_LOGS && typeof global.SMMO_LOGS.get === 'function')
               ? global.SMMO_LOGS.get()
@@ -1094,7 +1115,8 @@
               logs[existingIndex] = entry;
               updated++;
             } else {
-              skipped++;
+              logs.push(entry);
+              added++;
             }
 
             if (global.SMMO_LOGS && typeof global.SMMO_LOGS.set === 'function') {
@@ -1103,7 +1125,7 @@
               global.SMMO_ITEM_LOGS = logs;
             }
 
-            updateImportedStatus.textContent = `Updated ${updated}/${idsToUpdate.length} imported IDs — last ${idStr} (auth: ${attemptResult.used || 'unknown'})`;
+            updateImportedStatus.textContent = `Updated ${updated}, added ${added} / ${idsToUpdate.length} imported IDs — last ${idStr} (auth: ${attemptResult.used || 'unknown'})`;
           } else {
             const msg = attemptResult.error && attemptResult.error.message ? attemptResult.error.message : String(attemptResult.error);
             if (attemptResult.rateLimited || msg.includes('HTTP 429')) {
@@ -1124,7 +1146,7 @@
         updateImportedRunning = false;
         updateImportedAbortController = null;
         updateImportedStartBtn.textContent = 'Update imported IDs';
-        updateImportedStatus.textContent = `Imported ID update completed — updated ${updated}, skipped ${skipped}, errors ${errors}.`;
+        updateImportedStatus.textContent = `Imported ID update completed — updated ${updated}, added ${added}, skipped ${skipped}, errors ${errors}.`;
       });
     }
 
@@ -1144,8 +1166,6 @@
             let text = reader.result;
             if (typeof text !== 'string') text = String(text || '');
             if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-
-            const parsed = parseJsonFlexible(text);
             const foundIds = new Set();
 
             function pushIdFrom(value) {
@@ -1181,7 +1201,20 @@
               pushIdFrom(node);
             }
 
-            walk(parsed);
+            // First try structured JSON parsing.
+            try {
+              const parsed = parseJsonFlexible(text);
+              walk(parsed);
+            } catch (jsonErr) {
+              // Ignore parse failure here and fall back to loose text scanning.
+            }
+
+            // Fallback/augment: scan any loose text for numeric IDs and ignore
+            // all alphabetic/symbol content (e.g. pasted notes or instructions).
+            const numericTokens = String(text).match(/\b\d+\b/g) || [];
+            for (const token of numericTokens) {
+              pushIdFrom(token);
+            }
 
             if (foundIds.size === 0) {
               updateImportedStatus.textContent = 'Upload failed: no valid item IDs found in JSON.';
