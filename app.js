@@ -49,6 +49,18 @@
       'treasure chest'
     ]);
 
+    const TOOL_SLOT_KEYS = new Set(['tools', 'wood axe', 'pickaxe', 'fishing rod', 'shovel']);
+    const RARITY_ORDER = {
+      'Celestial': 7, 'Legendary': 6, 'Epic': 5, 'Elite': 4,
+      'Rare': 3, 'Uncommon': 2, 'Common': 1
+    };
+    const RARITY_COLORS = {
+      'Common': '#FFFFFF', 'Uncommon': '#00BFFF', 'Rare': '#FFA500',
+      'Elite': '#FF0000', 'Epic': '#800080', 'Legendary': '#FFD700',
+      'Celestial': '#ADD8E6', 'Exotic': '#00FF00'
+    };
+    const STAT_LABELS = { str: 'Strength', def: 'Defence', crit: 'Crit', hp: 'HP' };
+
     let sortBy = 'power'; // 'power' or 'value'
     let budgetCapEnabled = false;
 
@@ -96,8 +108,7 @@
 
     function isMainOutputItem(item) {
       const slotKey = getSlotKey(item.slot);
-      const toolSlotKeys = new Set(['tools', 'wood axe', 'pickaxe', 'fishing rod', 'shovel']);
-      return !INTERESTING_TYPE_KEYS.has(slotKey) && !item.custom_item && !toolSlotKeys.has(slotKey);
+      return !INTERESTING_TYPE_KEYS.has(slotKey) && !item.custom_item && !TOOL_SLOT_KEYS.has(slotKey);
     }
 
     function pickBestItemsBySlot(items, sortMode) {
@@ -372,13 +383,7 @@
     }
 
     function getStatDisplayName(statKey) {
-      const labels = {
-        str: 'Strength',
-        def: 'Defence',
-        crit: 'Crit',
-        hp: 'HP'
-      };
-      return labels[statKey] || String(statKey || '').toUpperCase();
+      return STAT_LABELS[statKey] || String(statKey || '').toUpperCase();
     }
 
     function formatStatValue(value) {
@@ -406,21 +411,9 @@
         }
 
         // Special sorting for tool types: Wood Axe, Fishing Rod, Pickaxe, Shovel
-        const toolTypes = ['Wood Axe', 'Fishing Rod', 'Pickaxe', 'Shovel'];
-        if (toolTypes.includes(slotName)) {
-          // Sort by rarity first (Celestial > Legendary > Epic > Elite > Rare > Uncommon > Common)
-          const rarityOrder = {
-            'Celestial': 7,
-            'Legendary': 6,
-            'Epic': 5,
-            'Elite': 4,
-            'Rare': 3,
-            'Uncommon': 2,
-            'Common': 1
-          };
-          
-          const rarityA = rarityOrder[a.rarity] || 0;
-          const rarityB = rarityOrder[b.rarity] || 0;
+        if (TOOL_SLOT_KEYS.has(slotName.toLowerCase())) {
+          const rarityA = RARITY_ORDER[a.rarity] || 0;
+          const rarityB = RARITY_ORDER[b.rarity] || 0;
           
           if (rarityB !== rarityA) return rarityB - rarityA;
           
@@ -749,17 +742,7 @@
 
     function getRarityColor(rarity) {
       if (!rarity) return null;
-      const rarityMap = {
-        'Common': '#FFFFFF',      // White
-        'Uncommon': '#00BFFF',    // Blue
-        'Rare': '#FFA500',        // Orange
-        'Elite': '#FF0000',       // Red
-        'Epic': '#800080',        // Purple
-        'Legendary': '#FFD700',   // Yellow
-        'Celestial': '#ADD8E6',   // Light Blue
-        'Exotic': '#00FF00'       // Green
-      };
-      return rarityMap[rarity] || null;
+      return RARITY_COLORS[rarity] || null;
     }
 
     sortButton.addEventListener('click', () => {

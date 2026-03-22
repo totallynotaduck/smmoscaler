@@ -121,7 +121,6 @@
 
     for (const entry of incomingEntries) {
       let id = extractId(entry);
-      // If parsed entry is a plain item object (no outer id), try its nested id
       if (!id && entry && typeof entry === 'object' && (entry.name || entry.item_name || entry.minLevel)) {
         id = extractId(entry);
       }
@@ -129,13 +128,10 @@
       if (!id) continue;
       if (seen.has(String(id))) continue;
 
-      // Normalize: if entry already looks like {id, fetchedAt, item}, keep it.
       let toPush = entry;
       if (!(entry && entry.id) && entry && entry.item) {
-        // maybe entry.item is the real item
         toPush = { id: id, fetchedAt: now, item: entry.item };
       } else if (!(entry && entry.id) && (entry && (entry.name || entry.item_name))) {
-        // entry is a plain item
         toPush = { id: id, fetchedAt: now, item: entry };
       } else if (typeof entry === 'string' || typeof entry === 'number') {
         toPush = { id: id, fetchedAt: now };
@@ -149,10 +145,212 @@
     return { merged, imported };
   }
 
+  // --- Shared fetch helpers (used by start-logging, update-db, update-imported) ---
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function parseRetryAfterMs(value) {
+    if (value == null || value === '') return null;
+    const asSeconds = Number(value);
+    if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+      return Math.max(0, Math.round(asSeconds * 1000));
+    }
+    const asDate = Date.parse(String(value));
+    if (Number.isFinite(asDate)) {
+      return Math.max(0, asDate - Date.now());
+    }
+    return null;
+  }
+
+  async function fetchItem(url, options) {
+    try {
+      const resp = await fetch(url, options);
+      const retryAfter = resp.headers && typeof resp.headers.get === 'function'
+        ? resp.headers.get('Retry-After')
+        : null;
+      let data = null;
+      try {
+        data = await resp.json();
+      } catch (e) {
+        data = null;
+      }
+
+      if (!resp.ok) {
+        return {
+          ok: false,
+          status: resp.status,
+          retryAfter,
+          error: new Error(`HTTP ${resp.status}`),
+          data
+        };
+      }
+      return { ok: true, data, status: resp.status };
+    } catch (err) {
+      return { ok: false, status: 0, error: err };
+    }
+  }
+
+  function buildItemUrl(base, endpointTemplate, id) {
+    const idStr = String(id);
+    const urlPath = endpointTemplate.includes('{id}')
+      ? endpointTemplate.replace('{id}', encodeURIComponent(idStr))
+      : `${endpointTemplate}/${encodeURIComponent(idStr)}`;
+    return `${base}${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
+  }
+
+  function buildRequestContext(config, apiKey) {
+    return {
+      base: (config.API_BASE_URL || 'https://api.simple-mmo.com/v1').replace(/\/$/, ''),
+      endpointTemplate: config.ITEM_BY_ID_ENDPOINT || '/item/info/{id}',
+      method: (config.ITEM_BY_ID_METHOD || 'POST').toUpperCase(),
+      apiKeyMode: config.API_KEY_MODE || 'header',
+      apiKeyHeader: config.API_KEY_HEADER_NAME || 'api_key',
+      apiKeyQueryParam: config.API_KEY_QUERY_PARAM || 'apiKey',
+      apiKey: apiKey
+    };
+  }
+
+  function buildRequestOptions(ctx, id, url, signal) {
+    const headers = { 'Accept': 'application/json' };
+
+    if (ctx.apiKeyMode === 'header') {
+      if (typeof ctx.apiKeyHeader === 'string' && ctx.apiKeyHeader.toLowerCase() === 'authorization') {
+        headers['Authorization'] = ctx.apiKey.startsWith('Bearer ') ? ctx.apiKey : `Bearer ${ctx.apiKey}`;
+      } else {
+        headers[ctx.apiKeyHeader] = ctx.apiKey;
+      }
+    }
+
+    const options = { method: ctx.method, headers, signal };
+    if (ctx.method === 'POST' && !ctx.endpointTemplate.includes('{id}')) {
+      options.headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify({ id });
+    }
+
+    let requestUrl = url;
+    if (ctx.apiKeyMode === 'query') {
+      const sep = requestUrl.includes('?') ? '&' : '?';
+      requestUrl = `${requestUrl}${sep}${encodeURIComponent(ctx.apiKeyQueryParam)}=${encodeURIComponent(ctx.apiKey)}`;
+    }
+
+    return { url: requestUrl, options };
+  }
+
+  function buildAuthAttempts(initialUrl, initialOptions, ctx) {
+    const attemptsByLabel = {};
+    attemptsByLabel.initial = { url: initialUrl, options: initialOptions, label: 'initial' };
+
+    if (ctx.apiKeyMode === 'header' && String(ctx.apiKeyHeader).toLowerCase() !== 'authorization') {
+      const h = Object.assign({}, initialOptions.headers || {});
+      h['Authorization'] = ctx.apiKey.startsWith('Bearer ') ? ctx.apiKey : `Bearer ${ctx.apiKey}`;
+      attemptsByLabel.bearer = { url: initialUrl, options: Object.assign({}, initialOptions, { headers: h }), label: 'bearer' };
+    }
+
+    const encodedParam = `${encodeURIComponent(ctx.apiKeyQueryParam)}=`;
+    if (!initialUrl.includes(encodedParam)) {
+      const sep = initialUrl.includes('?') ? '&' : '?';
+      const urlWithQuery = `${initialUrl}${sep}${encodedParam}${encodeURIComponent(ctx.apiKey)}`;
+      attemptsByLabel.query = { url: urlWithQuery, options: initialOptions, label: 'query' };
+    }
+
+    if (ctx.method === 'POST') {
+      const opts = Object.assign({}, initialOptions);
+      const h = Object.assign({}, opts.headers || {});
+      h['Content-Type'] = 'application/json';
+      const bodySource = opts.body ? JSON.parse(opts.body) : {};
+      if (!Object.prototype.hasOwnProperty.call(bodySource, 'api_key')) {
+        const body = Object.assign({}, bodySource, { api_key: ctx.apiKey });
+        opts.headers = h;
+        opts.body = JSON.stringify(body);
+        attemptsByLabel.body = { url: initialUrl, options: opts, label: 'body' };
+      }
+    }
+
+    return attemptsByLabel;
+  }
+
+  async function attemptFetchWithFallback(initialUrl, initialOptions, ctx, opts) {
+    const maxRateLimitRetries = (opts && opts.maxRateLimitRetries) || 0;
+    const statusEl = (opts && opts.statusEl) || null;
+    const preferredAuthLabel = (ctx && ctx.preferredAuthLabel) || null;
+
+    const attemptsByLabel = buildAuthAttempts(initialUrl, initialOptions, ctx);
+    const fallbackOrder = ['initial', 'bearer', 'query', 'body'].filter(label => attemptsByLabel[label]);
+    const orderedLabels = (preferredAuthLabel && attemptsByLabel[preferredAuthLabel])
+      ? [preferredAuthLabel].concat(fallbackOrder.filter(label => label !== preferredAuthLabel))
+      : fallbackOrder;
+
+    for (const label of orderedLabels) {
+      const a = attemptsByLabel[label];
+      for (let rateTry = 0; rateTry <= maxRateLimitRetries; rateTry++) {
+        const res = await fetchItem(a.url, a.options);
+        if (res.ok) return { ok: true, data: res.data, used: a.label };
+
+        if (res.status === 429 && maxRateLimitRetries > 0) {
+          const retryAfterMs = parseRetryAfterMs(res.retryAfter);
+          const expBackoff = Math.min(60000, 2000 * Math.pow(2, rateTry));
+          const waitMs = Math.max(retryAfterMs || 0, expBackoff) + Math.floor(Math.random() * 400);
+          if (statusEl) {
+            const waitSeconds = Math.max(1, Math.ceil(waitMs / 1000));
+            statusEl.textContent = `Rate limited (HTTP 429). Waiting ${waitSeconds}s before retrying ${a.label}…`;
+          }
+          await sleep(waitMs);
+          if (rateTry === maxRateLimitRetries) {
+            return { ok: false, status: 429, rateLimited: true, error: new Error('HTTP 429') };
+          }
+          continue;
+        }
+
+        if (res.status === 401 || (res.error && res.error.message && res.error.message.includes('HTTP 401'))) {
+          console.debug('logger: 401 received for', a.label);
+          await sleep(300);
+          break; // try next auth method
+        }
+
+        return { ok: false, error: res.error, status: res.status };
+      }
+    }
+
+    return { ok: false, error: new Error('All auth attempts failed (401)') };
+  }
+
+  function updateLogEntry(id, entry, mode) {
+    const logs = global.SMMO_ITEM_LOGS || [];
+
+    if (mode === 'replace') {
+      const existingIndex = logs.findIndex(e => String(e.id) === String(id));
+      if (existingIndex !== -1) {
+        logs[existingIndex] = entry;
+      } else {
+        logs.push(entry);
+      }
+    } else {
+      logs.push(entry);
+    }
+
+    if (global.SMMO_LOGS && typeof global.SMMO_LOGS.set === 'function') {
+      global.SMMO_LOGS.set(logs);
+    } else {
+      global.SMMO_ITEM_LOGS = logs;
+    }
+
+    const numId = parseInt(String(id)) || 0;
+    if (numId > (global.LATEST_LOG_ITEM_ID || 0)) {
+      global.LATEST_LOG_ITEM_ID = numId;
+    }
+  }
+
+  function getExistingLogs() {
+    return (global.SMMO_LOGS && typeof global.SMMO_LOGS.get === 'function')
+      ? global.SMMO_LOGS.get()
+      : (global.SMMO_ITEM_LOGS || []);
+  }
+
+  // --- File loading helpers ---
+
   async function fetchJsonIfPresent(filePath) {
-    // For file:// protocol, use XMLHttpRequest instead of fetch to avoid CORS issues
     const isLocalFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
-    
+
     if (isLocalFile) {
       return new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
@@ -184,8 +382,7 @@
         xhr.send();
       });
     }
-    
-    // For HTTP(S), use fetch
+
     try {
       const response = await fetch(filePath);
       if (!response.ok) {
@@ -210,10 +407,10 @@
     const files = indexPayload.files
       .map(x => (typeof x === 'string' ? x.trim() : ''))
       .filter(Boolean);
-    console.debug('logger: index file found with files', { 
-      count: files.length, 
+    console.debug('logger: index file found with files', {
+      count: files.length,
       type: files[0]?.startsWith('http') ? 'absolute-urls' : 'relative-paths',
-      files: files.slice(0, 3) 
+      files: files.slice(0, 3)
     });
     return files.length > 0 ? files : null;
   }
@@ -249,7 +446,6 @@
       }
     }
 
-    // Deduplicate by file path in case multiple patterns resolve the same files.
     const seenPaths = new Set();
     const unique = [];
     for (const item of discovered) {
@@ -262,18 +458,14 @@
     return unique;
   }
 
-  // Auto-load smmoscaler-logs.json if it exists
   async function autoLoadLogs() {
     try {
-      console.debug('logger: autoLoadLogs starting', { 
+      console.debug('logger: autoLoadLogs starting', {
         location: typeof window !== 'undefined' ? window.location.href : 'unknown',
-        existingLogs: (global.SMMO_ITEM_LOGS || []).length 
+        existingLogs: (global.SMMO_ITEM_LOGS || []).length
       });
-      
-      const existing = (global.SMMO_LOGS && typeof global.SMMO_LOGS.get === 'function') 
-        ? global.SMMO_LOGS.get() 
-        : (global.SMMO_ITEM_LOGS || []);
 
+      const existing = getExistingLogs();
       const indexedFiles = await getSplitFileListFromIndex();
       const sources = [];
 
@@ -314,11 +506,10 @@
         global.SMMO_ITEM_LOGS = merged;
         console.debug('logger: set SMMO_ITEM_LOGS', { count: merged.length });
       }
-      
-      // Calculate and store the maximum item ID for resume logging
+
       const maxId = getLatestLoggedItemId(merged);
       global.LATEST_LOG_ITEM_ID = maxId;
-      
+
       console.debug('logger: auto-loaded', {
         imported,
         total: merged.length,
@@ -327,8 +518,7 @@
         latestItemId: maxId,
         validIdCount: merged.length,
       });
-      
-      // Update status if available
+
       const status = qs('loggerStatus');
       if (status) {
         status.textContent = `Auto-loaded ${imported} items from ${sources.length} log file(s). Latest ID: ${maxId}`;
@@ -340,9 +530,64 @@
         count: (global.SMMO_ITEM_LOGS || []).length,
         firstId: (global.SMMO_ITEM_LOGS?.[0]?.id),
       });
-      // Don't show error in status for auto-load failures, as the file may simply not exist
     }
   }
+
+  // --- Shared fetch-loop runner ---
+
+  async function runFetchLoop(pending, ctx, signal, statusEl, opts) {
+    const mode = (opts && opts.mode) || 'append'; // 'append' or 'replace'
+    const maxRateLimitRetries = (opts && opts.maxRateLimitRetries) || 0;
+
+    let added = 0;
+    let skipped = 0;
+    let errors = 0;
+    let preferredAuthLabel = (opts && opts.preferredAuthLabel) || null;
+
+    for (const id of pending) {
+      if (opts && opts.isRunning && !opts.isRunning()) break;
+
+      const url = buildItemUrl(ctx.base, ctx.endpointTemplate, id);
+      const req = buildRequestOptions(ctx, id, url, signal);
+
+      const fetchCtx = Object.assign({}, ctx, { preferredAuthLabel });
+      statusEl.textContent = `Fetching ${id}…`;
+
+      const result = await attemptFetchWithFallback(req.url, req.options, fetchCtx, {
+        maxRateLimitRetries,
+        statusEl
+      });
+
+      if (result.ok) {
+        if (result.used) preferredAuthLabel = result.used;
+        const entry = { id: id, fetchedAt: new Date().toISOString(), item: result.data };
+        updateLogEntry(id, entry, mode);
+        added++;
+        statusEl.textContent = `${mode === 'replace' ? 'Updated' : 'Added'} ${added} items — last ${id} (auth: ${result.used || 'unknown'})`;
+      } else {
+        const msg = result.error && result.error.message ? result.error.message : String(result.error);
+        if (result.rateLimited || msg.includes('HTTP 429')) {
+          errors++;
+          statusEl.textContent = `Rate limited while fetching ${id}. Backoff retries exhausted.`;
+        } else if (msg.includes('HTTP 404')) {
+          const entry = { id: id, fetchedAt: new Date().toISOString(), item: null };
+          updateLogEntry(id, entry, mode);
+          skipped++;
+          statusEl.textContent = `Item ${id} not found – skipping`;
+        } else {
+          console.warn('Fetch failed for', id, result.error);
+          errors++;
+          statusEl.textContent = `Fetch error for ${id}: ${msg}`;
+        }
+      }
+
+      try { await sleep(2000); } catch (e) { /* ignore */ }
+    }
+
+    return { added, skipped, errors, preferredAuthLabel };
+  }
+
+  // --- DOMContentLoaded: wire up UI ---
 
   document.addEventListener('DOMContentLoaded', async () => {
     const startBtn = qs('loggerStartButton');
@@ -350,60 +595,21 @@
     const apiInput = qs('loggerApiKeyInput');
     const status = qs('loggerStatus');
 
-    // Auto-load smmoscaler-logs.json if it exists
     await autoLoadLogs();
 
     let running = false;
     let abortController = null;
     let importedIdsForUpdate = loadImportedIds();
 
-    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-    function parseRetryAfterMs(value) {
-      if (value == null || value === '') return null;
-      const asSeconds = Number(value);
-      if (Number.isFinite(asSeconds) && asSeconds >= 0) {
-        return Math.max(0, Math.round(asSeconds * 1000));
-      }
-      const asDate = Date.parse(String(value));
-      if (Number.isFinite(asDate)) {
-        return Math.max(0, asDate - Date.now());
-      }
-      return null;
+    function getApiKey() {
+      return (apiInput && apiInput.value || '').trim();
     }
 
-    async function fetchItem(url, options) {
-      try {
-        const resp = await fetch(url, options);
-        const retryAfter = resp.headers && typeof resp.headers.get === 'function'
-          ? resp.headers.get('Retry-After')
-          : null;
-        let data = null;
-        try {
-          data = await resp.json();
-        } catch (e) {
-          data = null;
-        }
-
-        if (!resp.ok) {
-          return {
-            ok: false,
-            status: resp.status,
-            retryAfter,
-            error: new Error(`HTTP ${resp.status}`),
-            data
-          };
-        }
-        return { ok: true, data, status: resp.status };
-      } catch (err) {
-        return { ok: false, status: 0, error: err };
-      }
-    }
+    // --- Start logging ---
 
     startBtn.addEventListener('click', async (ev) => {
       ev.preventDefault();
       if (running) {
-        // Stop requested
         running = false;
         if (abortController) abortController.abort();
         startBtn.textContent = 'Start logging';
@@ -411,23 +617,17 @@
         return;
       }
 
-      const apiKey = (apiInput && apiInput.value || '').trim();
+      const apiKey = getApiKey();
       if (!apiKey) { status.textContent = 'Provide a public API key to start logging.'; return; }
 
       const config = global.SMMO_SCALER_CONFIG || {};
-      const base = (config.API_BASE_URL || 'https://api.simple-mmo.com/v1').replace(/\/$/, '');
-      const endpointTemplate = (config.ITEM_BY_ID_ENDPOINT || '/item/info/{id}');
-      const method = (config.ITEM_BY_ID_METHOD || 'POST').toUpperCase();
-      const apiKeyMode = (config.API_KEY_MODE || 'header');
-      const apiKeyHeader = config.API_KEY_HEADER_NAME || 'api_key';
+      const ctx = buildRequestContext(config, apiKey);
       const logs = global.SMMO_ITEM_LOGS || [];
       const existing = new Set(logs.map(l => String(l.id)));
 
-      // Determine latest known item ID from both cached value and current logs.
       const latestLoggedId = Math.max(global.LATEST_LOG_ITEM_ID || 0, getLatestLoggedItemId(logs));
       global.LATEST_LOG_ITEM_ID = latestLoggedId;
 
-      // Build candidate ID list
       let ids = [];
       if (Array.isArray(config.ITEM_IDS) && config.ITEM_IDS.length > 0) {
         const configuredIds = config.ITEM_IDS
@@ -436,7 +636,6 @@
 
         ids = configuredIds.filter(id => id > latestLoggedId);
 
-        // If configured IDs are exhausted, continue probing from latest+1.
         if (ids.length === 0) {
           const maxConfiguredId = configuredIds.length > 0 ? Math.max(...configuredIds) : 0;
           if (latestLoggedId >= maxConfiguredId) {
@@ -444,20 +643,17 @@
             for (let i = startId; i <= 999000; i++) ids.push(i);
           }
         }
-      }
-      else {
-        // Start from latest logged ID + 1 to resume logging
+      } else {
         const startId = latestLoggedId > 0 ? latestLoggedId + 1 : 1;
         for (let i = startId; i <= 999000; i++) ids.push(i);
       }
 
-      // Filter to unlogged IDs
       const pending = ids.filter(id => !existing.has(String(id)));
       if (pending.length === 0) { status.textContent = 'No unlogged item IDs found.'; return; }
-      
+
       const resumeFrom = latestLoggedId;
       const statusMsg = resumeFrom > 0 ? ` (resuming from ID ${resumeFrom})` : '';
-      
+
       console.debug('logger: starting session', {
         latestLoggedId: resumeFrom,
         totalLogsLoaded: logs.length,
@@ -472,143 +668,22 @@
       startBtn.textContent = 'Stop logging';
       status.textContent = `Starting logging — ${pending.length} items available${statusMsg}.`;
 
-      let added = 0;
-      async function attemptFetchWithFallback(initialUrl, initialOptions, ctx) {
-        // Try initial request first, then fall back if 401.
-        const attempts = [];
-        attempts.push({ url: initialUrl, options: initialOptions, label: 'initial' });
-
-        // If initial used header mode, try Authorization: Bearer next
-        if (ctx.apiKeyMode === 'header' && String(ctx.apiKeyHeader).toLowerCase() !== 'authorization') {
-          const h = Object.assign({}, initialOptions.headers || {});
-          h['Authorization'] = ctx.apiKey.startsWith('Bearer ') ? ctx.apiKey : `Bearer ${ctx.apiKey}`;
-          attempts.push({ url: initialUrl, options: Object.assign({}, initialOptions, { headers: h }), label: 'bearer' });
-        }
-
-        // Try query param
-        const paramName = (ctx.config && ctx.config.API_KEY_QUERY_PARAM) || 'apiKey';
-        const sep = initialUrl.includes('?') ? '&' : '?';
-        const urlWithQuery = `${initialUrl}${sep}${encodeURIComponent(paramName)}=${encodeURIComponent(ctx.apiKey)}`;
-        attempts.push({ url: urlWithQuery, options: initialOptions, label: 'query' });
-
-        // If POST, try including api_key in JSON body as last resort
-        if ((ctx.method || 'POST').toUpperCase() === 'POST') {
-          const opts = Object.assign({}, initialOptions);
-          const h = Object.assign({}, opts.headers || {});
-          h['Content-Type'] = 'application/json';
-          const body = Object.assign({}, opts.body ? JSON.parse(opts.body) : {}, { api_key: ctx.apiKey });
-          opts.headers = h;
-          opts.body = JSON.stringify(body);
-          attempts.push({ url: initialUrl, options: opts, label: 'body' });
-        }
-
-        for (const a of attempts) {
-          console.debug('logger: requesting', a.label, a.url, a.options);
-          const res = await fetchItem(a.url, a.options);
-          if (res.ok) return { ok: true, data: res.data, used: a.label };
-          // If fetch failed with 401, continue to next attempt; otherwise return error
-          if (res.error && res.error.message && res.error.message.includes('HTTP 401')) {
-            console.debug('logger: 401 received for', a.label);
-            // small delay before next attempt
-            await sleep(300);
-            continue;
-          }
-          return { ok: false, error: res.error };
-        }
-
-        return { ok: false, error: new Error('All auth attempts failed (401)') };
-      }
-
-      for (const id of pending) {
-        if (!running) break;
-
-        const idStr = String(id);
-        const urlPath = endpointTemplate.includes('{id}')
-          ? endpointTemplate.replace('{id}', encodeURIComponent(idStr))
-          : `${endpointTemplate}/${encodeURIComponent(idStr)}`;
-        const url = `${base}${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
-
-        const headers = { 'Accept': 'application/json' };
-
-        // Support header mode (including Authorization: Bearer) and query mode
-        let requestUrl = url;
-        if (apiKeyMode === 'header') {
-          // If header name is Authorization, send as Bearer token
-          if (typeof apiKeyHeader === 'string' && apiKeyHeader.toLowerCase() === 'authorization') {
-            headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
-          } else {
-            headers[apiKeyHeader] = apiKey;
-          }
-        } else if (apiKeyMode === 'query') {
-          const paramName = config.API_KEY_QUERY_PARAM || 'apiKey';
-          const sep = requestUrl.includes('?') ? '&' : '?';
-          requestUrl = `${requestUrl}${sep}${encodeURIComponent(paramName)}=${encodeURIComponent(apiKey)}`;
-        }
-
-        const options = { method, headers, signal: abortController.signal };
-        if (method === 'POST' && !endpointTemplate.includes('{id}')) {
-          options.headers['Content-Type'] = 'application/json';
-          options.body = JSON.stringify({ id });
-        }
-
-        status.textContent = `Fetching ${idStr}…`;
-        const ctx = { apiKeyMode, apiKeyHeader, apiKey, config, method };
-        const attemptResult = await attemptFetchWithFallback(url, options, ctx);
-        if (attemptResult.ok) {
-          const entry = { id: id, fetchedAt: new Date().toISOString(), item: attemptResult.data };
-          if (global.SMMO_LOGS && typeof global.SMMO_LOGS.push === 'function') {
-            global.SMMO_LOGS.push(entry);
-          } else {
-            logs.push(entry);
-            global.SMMO_ITEM_LOGS = logs;
-          }
-          // Update max logged ID for resume capability
-          const numId = parseInt(idStr) || 0;
-          if (numId > (global.LATEST_LOG_ITEM_ID || 0)) {
-            global.LATEST_LOG_ITEM_ID = numId;
-          }
-          added++;
-          status.textContent = `Added ${added} items — last ${idStr} (auth: ${attemptResult.used || 'unknown'})`;
-        } else {
-          // If the only failure was a 404 Not Found, treat it as "nonexistent" and
-          // record it so we don't keep retrying the same ID.  This satisfies the
-          // requirement of skipping missing items without spamming the console or
-          // aborting the whole run.
-          const msg = attemptResult.error && attemptResult.error.message ? attemptResult.error.message : String(attemptResult.error);
-          if (msg.includes('HTTP 404')) {
-            // push an entry with no item (could also mark with special flag) so that
-            // the ID counts as existing and won't be requested again.
-            const entry = { id: id, fetchedAt: new Date().toISOString(), item: null };
-            if (global.SMMO_LOGS && typeof global.SMMO_LOGS.push === 'function') {
-              global.SMMO_LOGS.push(entry);
-            } else {
-              logs.push(entry);
-              global.SMMO_ITEM_LOGS = logs;
-            }
-            // Update max logged ID for resume capability even for 404s
-            const numId = parseInt(idStr) || 0;
-            if (numId > (global.LATEST_LOG_ITEM_ID || 0)) {
-              global.LATEST_LOG_ITEM_ID = numId;
-            }
-            status.textContent = `Item ${idStr} not found – skipping`;
-          } else {
-            console.warn('Fetch failed for', idStr, attemptResult.error);
-            status.textContent = `Fetch error for ${idStr}: ${msg}`;
-          }
-        }
-
-        try { await sleep(2000); } catch (e) { /* ignore */ }
-      }
+      const result = await runFetchLoop(pending, ctx, abortController.signal, status, {
+        mode: 'append',
+        isRunning: () => running
+      });
 
       running = false;
       abortController = null;
       startBtn.textContent = 'Start logging';
-      status.textContent = `Logging completed — added ${added} items.`;
+      status.textContent = `Logging completed — added ${result.added} items.`;
     });
+
+    // --- Export ---
 
     exportBtn.addEventListener('click', (ev) => {
       ev.preventDefault();
-      const data = JSON.stringify((global.SMMO_LOGS && typeof global.SMMO_LOGS.get === 'function') ? global.SMMO_LOGS.get() : (global.SMMO_ITEM_LOGS || []), null, 2);
+      const data = JSON.stringify(getExistingLogs(), null, 2);
       const blob = new Blob([data], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -620,7 +695,8 @@
       URL.revokeObjectURL(url);
     });
 
-    // Import logs via hidden file input
+    // --- Import ---
+
     const importBtn = qs('loggerImportButton');
     const importInput = qs('loggerImportInput');
     if (importBtn && importInput) {
@@ -637,74 +713,31 @@
           try {
             let text = reader.result;
             if (typeof text !== 'string') text = String(text || '');
-            // strip BOM if present
             if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
 
             let parsed = parseJsonFlexible(text);
-            // Accept common wrappers
-            if (!Array.isArray(parsed)) {
-              if (parsed && Array.isArray(parsed.logs)) parsed = parsed.logs;
-              else if (parsed && Array.isArray(parsed.items)) parsed = parsed.items;
-              else if (parsed && Array.isArray(parsed.data)) parsed = parsed.data;
-            }
+            parsed = unwrapArrayPayload(parsed);
+            if (!parsed) throw new Error('JSON must be an array or contain an array under "logs"/"items"/"data"');
 
-            if (!Array.isArray(parsed)) throw new Error('JSON must be an array or contain an array under "logs"/"items"/"data"');
+            const existing = getExistingLogs();
+            const result = mergeLogEntries(existing, parsed);
 
-            const existing = (global.SMMO_LOGS && typeof global.SMMO_LOGS.get === 'function') ? global.SMMO_LOGS.get() : (global.SMMO_ITEM_LOGS || []);
-
-            function extractId(obj) {
-              if (obj == null) return null;
-              if (typeof obj === 'string' || typeof obj === 'number') return String(obj);
-              if (obj.id) return String(obj.id);
-              if (obj.item && (obj.item.id || obj.item.item_id)) return String(obj.item.id || obj.item.item_id);
-              if (obj.item_id) return String(obj.item_id);
-              if (obj.data && (obj.data.id || obj.data.item_id)) return String(obj.data.id || obj.data.item_id);
-              return null;
-            }
-
-            const seen = new Set(existing.map(e => extractId(e)).filter(Boolean));
-            let imported = 0;
-            const merged = existing.slice();
-            const now = new Date().toISOString();
             const importedIdsThisRun = new Set();
-            for (const entry of parsed) {
-              let id = extractId(entry);
-              // If parsed entry is a plain item object (no outer id), try its nested id
-              if (!id && entry && typeof entry === 'object' && (entry.name || entry.item_name || entry.minLevel)) {
-                id = extractId(entry);
-              }
-              if (!id && entry && entry.item && typeof entry.item === 'object') id = extractId(entry.item);
-              if (!id) continue;
-              if (seen.has(String(id))) continue;
-
-              // Normalize: if entry already looks like {id, fetchedAt, item}, keep it.
-              let toPush = entry;
-              if (!(entry && entry.id) && entry && entry.item) {
-                // maybe entry.item is the real item
-                toPush = { id: id, fetchedAt: now, item: entry.item };
-              } else if (!(entry && entry.id) && (entry && (entry.name || entry.item_name))) {
-                // entry is a plain item
-                toPush = { id: id, fetchedAt: now, item: entry };
-              } else if (typeof entry === 'string' || typeof entry === 'number') {
-                toPush = { id: id, fetchedAt: now };
-              }
-
-              merged.push(toPush);
-              seen.add(String(id));
-              importedIdsThisRun.add(String(id));
-              imported++;
+            for (const entry of result.merged.slice(existing.length)) {
+              const id = extractId(entry);
+              if (id) importedIdsThisRun.add(String(id));
             }
 
             if (global.SMMO_LOGS && typeof global.SMMO_LOGS.set === 'function') {
-              global.SMMO_LOGS.set(merged);
+              global.SMMO_LOGS.set(result.merged);
             } else {
-              global.SMMO_ITEM_LOGS = merged;
+              global.SMMO_ITEM_LOGS = result.merged;
             }
-            global.LATEST_LOG_ITEM_ID = getLatestLoggedItemId(merged);
+            global.LATEST_LOG_ITEM_ID = getLatestLoggedItemId(result.merged);
             importedIdsForUpdate = importedIdsThisRun;
             saveImportedIds(importedIdsForUpdate);
-            console.debug('logger: import merged', { imported, total: merged.length, existing: existing.length, parsed: parsed.length });
-            status.textContent = `Imported ${imported} items (existing ${existing.length}, parsed ${parsed.length}). Latest ID: ${global.LATEST_LOG_ITEM_ID}`;
+            console.debug('logger: import merged', { imported: result.imported, total: result.merged.length, existing: existing.length, parsed: parsed.length });
+            status.textContent = `Imported ${result.imported} items (existing ${existing.length}, parsed ${parsed.length}). Latest ID: ${global.LATEST_LOG_ITEM_ID}`;
           } catch (e) {
             console.error('logger: import error', e);
             status.textContent = `Import failed: ${e && e.message ? e.message : e}`;
@@ -715,12 +748,12 @@
           status.textContent = 'Import failed: file read error.';
         };
         reader.readAsText(f);
-        // reset input
         importInput.value = '';
       });
     }
 
-    // Update database functionality
+    // --- Update database ---
+
     const updateDbStartBtn = qs('updateDbStartButton');
     const updateDbStartIdInput = qs('updateDbStartIdInput');
     const updateDbStatus = qs('updateDbStatus');
@@ -743,7 +776,6 @@
     updateDbStartBtn.addEventListener('click', async (ev) => {
       ev.preventDefault();
       if (updateDbRunning) {
-        // Stop requested
         updateDbRunning = false;
         if (updateDbAbortController) updateDbAbortController.abort();
         updateDbStartBtn.textContent = 'Update database';
@@ -751,183 +783,41 @@
         return;
       }
 
-      const apiKey = (apiInput && apiInput.value || '').trim();
+      const apiKey = getApiKey();
       if (!apiKey) { updateDbStatus.textContent = 'Provide a public API key to start updating database.'; return; }
 
       const startId = parseInt(updateDbStartIdInput.value, 10);
       if (!Number.isInteger(startId) || startId < 1) { updateDbStatus.textContent = 'Please enter a valid start item ID (>= 1).'; return; }
 
       const config = global.SMMO_SCALER_CONFIG || {};
-      const base = (config.API_BASE_URL || 'https://api.simple-mmo.com/v1').replace(/\/$/, '');
-      const endpointTemplate = (config.ITEM_BY_ID_ENDPOINT || '/item/info/{id}');
-      const method = (config.ITEM_BY_ID_METHOD || 'POST').toUpperCase();
-      const apiKeyMode = (config.API_KEY_MODE || 'header');
-      const apiKeyHeader = config.API_KEY_HEADER_NAME || 'api_key';
+      const ctx = buildRequestContext(config, apiKey);
 
-      updateDbRunning = true;
-      updateDbAbortController = new AbortController();
-      updateDbStartBtn.textContent = 'Stop updating';
-      updateDbStatus.textContent = `Starting database update from ID ${startId}…`;
-
-      let updated = 0;
-      let skipped = 0;
-      let errors = 0;
-
-      async function attemptFetchWithFallback(initialUrl, initialOptions, ctx) {
-        // Try initial request first, then fall back if 401.
-        const attempts = [];
-        attempts.push({ url: initialUrl, options: initialOptions, label: 'initial' });
-
-        // If initial used header mode, try Authorization: Bearer next
-        if (ctx.apiKeyMode === 'header' && String(ctx.apiKeyHeader).toLowerCase() !== 'authorization') {
-          const h = Object.assign({}, initialOptions.headers || {});
-          h['Authorization'] = ctx.apiKey.startsWith('Bearer ') ? ctx.apiKey : `Bearer ${ctx.apiKey}`;
-          attempts.push({ url: initialUrl, options: Object.assign({}, initialOptions, { headers: h }), label: 'bearer' });
-        }
-
-        // Try query param
-        const paramName = (ctx.config && ctx.config.API_KEY_QUERY_PARAM) || 'apiKey';
-        const sep = initialUrl.includes('?') ? '&' : '?';
-        const urlWithQuery = `${initialUrl}${sep}${encodeURIComponent(paramName)}=${encodeURIComponent(ctx.apiKey)}`;
-        attempts.push({ url: urlWithQuery, options: initialOptions, label: 'query' });
-
-        // If POST, try including api_key in JSON body as last resort
-        if ((ctx.method || 'POST').toUpperCase() === 'POST') {
-          const opts = Object.assign({}, initialOptions);
-          const h = Object.assign({}, opts.headers || {});
-          h['Content-Type'] = 'application/json';
-          const body = Object.assign({}, opts.body ? JSON.parse(opts.body) : {}, { api_key: ctx.apiKey });
-          opts.headers = h;
-          opts.body = JSON.stringify(body);
-          attempts.push({ url: initialUrl, options: opts, label: 'body' });
-        }
-
-        for (const a of attempts) {
-          console.debug('logger: requesting', a.label, a.url, a.options);
-          const res = await fetchItem(a.url, a.options);
-          if (res.ok) return { ok: true, data: res.data, used: a.label };
-          // If fetch failed with 401, continue to next attempt; otherwise return error
-          if (res.error && res.error.message && res.error.message.includes('HTTP 401')) {
-            console.debug('logger: 401 received for', a.label);
-            // small delay before next attempt
-            await sleep(300);
-            continue;
-          }
-          return { ok: false, error: res.error };
-        }
-
-        return { ok: false, error: new Error('All auth attempts failed (401)') };
-      }
-
-      // Build candidate ID list
       let ids = [];
       if (Array.isArray(config.ITEM_IDS) && config.ITEM_IDS.length > 0) ids = config.ITEM_IDS.slice();
       else {
         for (let i = startId; i <= 999000; i++) ids.push(i);
       }
 
-      // Filter to IDs starting from startId
       const pending = ids.filter(id => id >= startId);
       if (pending.length === 0) { updateDbStatus.textContent = 'No item IDs found from the start ID.'; return; }
 
-      for (const id of pending) {
-        if (!updateDbRunning) break;
+      updateDbRunning = true;
+      updateDbAbortController = new AbortController();
+      updateDbStartBtn.textContent = 'Stop updating';
+      updateDbStatus.textContent = `Starting database update from ID ${startId}…`;
 
-        const idStr = String(id);
-        const urlPath = endpointTemplate.includes('{id}')
-          ? endpointTemplate.replace('{id}', encodeURIComponent(idStr))
-          : `${endpointTemplate}/${encodeURIComponent(idStr)}`;
-        const url = `${base}${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
-
-        const headers = { 'Accept': 'application/json' };
-
-        // Support header mode (including Authorization: Bearer) and query mode
-        let requestUrl = url;
-        if (apiKeyMode === 'header') {
-          // If header name is Authorization, send as Bearer token
-          if (typeof apiKeyHeader === 'string' && apiKeyHeader.toLowerCase() === 'authorization') {
-            headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
-          } else {
-            headers[apiKeyHeader] = apiKey;
-          }
-        } else if (apiKeyMode === 'query') {
-          const paramName = config.API_KEY_QUERY_PARAM || 'apiKey';
-          const sep = requestUrl.includes('?') ? '&' : '?';
-          requestUrl = `${requestUrl}${sep}${encodeURIComponent(paramName)}=${encodeURIComponent(apiKey)}`;
-        }
-
-        const options = { method, headers, signal: updateDbAbortController.signal };
-        if (method === 'POST' && !endpointTemplate.includes('{id}')) {
-          options.headers['Content-Type'] = 'application/json';
-          options.body = JSON.stringify({ id });
-        }
-
-        updateDbStatus.textContent = `Fetching ${idStr}…`;
-        const ctx = { apiKeyMode, apiKeyHeader, apiKey, config, method };
-        const attemptResult = await attemptFetchWithFallback(url, options, ctx);
-        if (attemptResult.ok) {
-          const entry = { id: id, fetchedAt: new Date().toISOString(), item: attemptResult.data };
-          
-          // Replace existing entry with same ID or add new
-          const logs = global.SMMO_ITEM_LOGS || [];
-          const existingIndex = logs.findIndex(e => String(e.id) === String(id));
-          if (existingIndex !== -1) {
-            logs[existingIndex] = entry;
-            updated++;
-          } else {
-            logs.push(entry);
-            updated++;
-          }
-          
-          if (global.SMMO_LOGS && typeof global.SMMO_LOGS.set === 'function') {
-            global.SMMO_LOGS.set(logs);
-          } else {
-            global.SMMO_ITEM_LOGS = logs;
-          }
-          
-          updateDbStatus.textContent = `Updated ${updated} items — last ${idStr} (auth: ${attemptResult.used || 'unknown'})`;
-        } else {
-          // If the only failure was a 404 Not Found, treat it as "nonexistent" and
-          // record it so we don't keep retrying the same ID.  This satisfies the
-          // requirement of skipping missing items without spamming the console or
-          // aborting the whole run.
-          const msg = attemptResult.error && attemptResult.error.message ? attemptResult.error.message : String(attemptResult.error);
-          if (msg.includes('HTTP 404')) {
-            // push an entry with no item (could also mark with special flag) so that
-            // the ID counts as existing and won't be requested again.
-            const entry = { id: id, fetchedAt: new Date().toISOString(), item: null };
-            const logs = global.SMMO_ITEM_LOGS || [];
-            const existingIndex = logs.findIndex(e => String(e.id) === String(id));
-            if (existingIndex !== -1) {
-              logs[existingIndex] = entry;
-              skipped++;
-            } else {
-              logs.push(entry);
-              skipped++;
-            }
-            
-            if (global.SMMO_LOGS && typeof global.SMMO_LOGS.set === 'function') {
-              global.SMMO_LOGS.set(logs);
-            } else {
-              global.SMMO_ITEM_LOGS = logs;
-            }
-            
-            updateDbStatus.textContent = `Item ${idStr} not found – skipping`;
-          } else {
-            console.warn('Fetch failed for', idStr, attemptResult.error);
-            updateDbStatus.textContent = `Fetch error for ${idStr}: ${msg}`;
-            errors++;
-          }
-        }
-
-        try { await sleep(2000); } catch (e) { /* ignore */ }
-      }
+      const result = await runFetchLoop(pending, ctx, updateDbAbortController.signal, updateDbStatus, {
+        mode: 'replace',
+        isRunning: () => updateDbRunning
+      });
 
       updateDbRunning = false;
       updateDbAbortController = null;
       updateDbStartBtn.textContent = 'Update database';
-      updateDbStatus.textContent = `Database update completed — updated ${updated}, skipped ${skipped}, errors ${errors}.`;
+      updateDbStatus.textContent = `Database update completed — updated ${result.added}, skipped ${result.skipped}, errors ${result.errors}.`;
     });
+
+    // --- Update imported IDs ---
 
     if (updateImportedStartBtn && updateImportedStatus) {
       updateImportedStartBtn.addEventListener('click', async (ev) => {
@@ -940,7 +830,7 @@
           return;
         }
 
-        const apiKey = (apiInput && apiInput.value || '').trim();
+        const apiKey = getApiKey();
         if (!apiKey) {
           updateImportedStatus.textContent = 'Provide a public API key to start updating imported IDs.';
           return;
@@ -957,176 +847,27 @@
         }
 
         const config = global.SMMO_SCALER_CONFIG || {};
-        const base = (config.API_BASE_URL || 'https://api.simple-mmo.com/v1').replace(/\/$/, '');
-        const endpointTemplate = (config.ITEM_BY_ID_ENDPOINT || '/item/info/{id}');
-        const method = (config.ITEM_BY_ID_METHOD || 'POST').toUpperCase();
-        const apiKeyMode = (config.API_KEY_MODE || 'header');
-        const apiKeyHeader = config.API_KEY_HEADER_NAME || 'api_key';
+        const ctx = buildRequestContext(config, apiKey);
 
         updateImportedRunning = true;
         updateImportedAbortController = new AbortController();
         updateImportedStartBtn.textContent = 'Stop imported update';
         updateImportedStatus.textContent = `Starting imported ID update (${idsToUpdate.length} IDs)…`;
 
-        let updated = 0;
-        let skipped = 0;
-        let errors = 0;
-        let preferredAuthLabel = 'initial';
-
-        async function attemptFetchWithFallback(initialUrl, initialOptions, ctx) {
-          const attemptsByLabel = {};
-          attemptsByLabel.initial = { url: initialUrl, options: initialOptions, label: 'initial' };
-
-          if (ctx.apiKeyMode === 'header' && String(ctx.apiKeyHeader).toLowerCase() !== 'authorization') {
-            const h = Object.assign({}, initialOptions.headers || {});
-            h['Authorization'] = ctx.apiKey.startsWith('Bearer ') ? ctx.apiKey : `Bearer ${ctx.apiKey}`;
-            attemptsByLabel.bearer = { url: initialUrl, options: Object.assign({}, initialOptions, { headers: h }), label: 'bearer' };
-          }
-
-          const paramName = (ctx.config && ctx.config.API_KEY_QUERY_PARAM) || 'apiKey';
-          const encodedParam = `${encodeURIComponent(paramName)}=`;
-          const alreadyHasQueryAuth = initialUrl.includes(encodedParam);
-          if (!alreadyHasQueryAuth) {
-            const sep = initialUrl.includes('?') ? '&' : '?';
-            const urlWithQuery = `${initialUrl}${sep}${encodedParam}${encodeURIComponent(ctx.apiKey)}`;
-            attemptsByLabel.query = { url: urlWithQuery, options: initialOptions, label: 'query' };
-          }
-
-          if ((ctx.method || 'POST').toUpperCase() === 'POST') {
-            const opts = Object.assign({}, initialOptions);
-            const h = Object.assign({}, opts.headers || {});
-            h['Content-Type'] = 'application/json';
-            const bodySource = opts.body ? JSON.parse(opts.body) : {};
-            const body = Object.assign({}, bodySource, { api_key: ctx.apiKey });
-            opts.headers = h;
-            opts.body = JSON.stringify(body);
-            if (!Object.prototype.hasOwnProperty.call(bodySource, 'api_key')) {
-              attemptsByLabel.body = { url: initialUrl, options: opts, label: 'body' };
-            }
-          }
-
-          const fallbackOrder = ['initial', 'bearer', 'query', 'body'].filter(label => attemptsByLabel[label]);
-          const preferred = ctx.preferredAuthLabel;
-          const orderedLabels = (preferred && attemptsByLabel[preferred])
-            ? [preferred].concat(fallbackOrder.filter(label => label !== preferred))
-            : fallbackOrder;
-
-          for (const label of orderedLabels) {
-            const a = attemptsByLabel[label];
-            const maxRateLimitRetries = 5;
-            for (let rateTry = 0; rateTry <= maxRateLimitRetries; rateTry++) {
-              const res = await fetchItem(a.url, a.options);
-              if (res.ok) return { ok: true, data: res.data, used: a.label };
-
-              if (res.status === 429) {
-                const retryAfterMs = parseRetryAfterMs(res.retryAfter);
-                const expBackoff = Math.min(60000, 2000 * Math.pow(2, rateTry));
-                const waitMs = Math.max(retryAfterMs || 0, expBackoff) + Math.floor(Math.random() * 400);
-                if (updateImportedStatus) {
-                  const waitSeconds = Math.max(1, Math.ceil(waitMs / 1000));
-                  updateImportedStatus.textContent = `Rate limited (HTTP 429). Waiting ${waitSeconds}s before retrying ${a.label}…`;
-                }
-                await sleep(waitMs);
-                if (rateTry === maxRateLimitRetries) {
-                  return {
-                    ok: false,
-                    status: 429,
-                    rateLimited: true,
-                    error: new Error('HTTP 429')
-                  };
-                }
-                continue;
-              }
-
-              if (res.status === 401 || (res.error && res.error.message && res.error.message.includes('HTTP 401'))) {
-                await sleep(300);
-                break;
-              }
-
-              return { ok: false, error: res.error, status: res.status };
-            }
-          }
-
-          return { ok: false, error: new Error('All auth attempts failed (401)') };
-        }
-
-        for (const id of idsToUpdate) {
-          if (!updateImportedRunning) break;
-
-          const idStr = String(id);
-          const urlPath = endpointTemplate.includes('{id}')
-            ? endpointTemplate.replace('{id}', encodeURIComponent(idStr))
-            : `${endpointTemplate}/${encodeURIComponent(idStr)}`;
-          const url = `${base}${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
-
-          const headers = { 'Accept': 'application/json' };
-          let requestUrl = url;
-          if (apiKeyMode === 'header') {
-            if (typeof apiKeyHeader === 'string' && apiKeyHeader.toLowerCase() === 'authorization') {
-              headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
-            } else {
-              headers[apiKeyHeader] = apiKey;
-            }
-          } else if (apiKeyMode === 'query') {
-            const paramName = config.API_KEY_QUERY_PARAM || 'apiKey';
-            const sep = requestUrl.includes('?') ? '&' : '?';
-            requestUrl = `${requestUrl}${sep}${encodeURIComponent(paramName)}=${encodeURIComponent(apiKey)}`;
-          }
-
-          const options = { method, headers, signal: updateImportedAbortController.signal };
-          if (method === 'POST' && !endpointTemplate.includes('{id}')) {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = JSON.stringify({ id });
-          }
-
-          updateImportedStatus.textContent = `Refreshing imported ID ${idStr}…`;
-          const ctx = { apiKeyMode, apiKeyHeader, apiKey, config, method, preferredAuthLabel };
-          const attemptResult = await attemptFetchWithFallback(requestUrl, options, ctx);
-          if (attemptResult.ok) {
-            if (attemptResult.used) preferredAuthLabel = attemptResult.used;
-            const entry = { id: id, fetchedAt: new Date().toISOString(), item: attemptResult.data };
-            const logs = (global.SMMO_LOGS && typeof global.SMMO_LOGS.get === 'function')
-              ? global.SMMO_LOGS.get()
-              : (global.SMMO_ITEM_LOGS || []);
-
-            const existingIndex = logs.findIndex(e => String(e.id) === String(id));
-            if (existingIndex !== -1) {
-              logs[existingIndex] = entry;
-              updated++;
-            } else {
-              skipped++;
-            }
-
-            if (global.SMMO_LOGS && typeof global.SMMO_LOGS.set === 'function') {
-              global.SMMO_LOGS.set(logs);
-            } else {
-              global.SMMO_ITEM_LOGS = logs;
-            }
-
-            updateImportedStatus.textContent = `Updated ${updated}/${idsToUpdate.length} imported IDs — last ${idStr} (auth: ${attemptResult.used || 'unknown'})`;
-          } else {
-            const msg = attemptResult.error && attemptResult.error.message ? attemptResult.error.message : String(attemptResult.error);
-            if (attemptResult.rateLimited || msg.includes('HTTP 429')) {
-              errors++;
-              updateImportedStatus.textContent = `Rate limited while updating ${idStr}. Backoff retries exhausted.`;
-            } else if (msg.includes('HTTP 404')) {
-              skipped++;
-              updateImportedStatus.textContent = `Imported ID ${idStr} not found - skipping`;
-            } else {
-              errors++;
-              updateImportedStatus.textContent = `Fetch error for imported ID ${idStr}: ${msg}`;
-            }
-          }
-
-          try { await sleep(2000); } catch (e) { /* ignore */ }
-        }
+        const result = await runFetchLoop(idsToUpdate, ctx, updateImportedAbortController.signal, updateImportedStatus, {
+          mode: 'replace',
+          maxRateLimitRetries: 5,
+          isRunning: () => updateImportedRunning
+        });
 
         updateImportedRunning = false;
         updateImportedAbortController = null;
         updateImportedStartBtn.textContent = 'Update imported IDs';
-        updateImportedStatus.textContent = `Imported ID update completed — updated ${updated}, skipped ${skipped}, errors ${errors}.`;
+        updateImportedStatus.textContent = `Imported ID update completed — updated ${result.added}, skipped ${result.skipped}, errors ${result.errors}.`;
       });
     }
+
+    // --- Upload custom IDs for imported-ID updates ---
 
     if (updateImportedUploadBtn && updateImportedUploadInput && updateImportedStatus) {
       updateImportedUploadBtn.addEventListener('click', (ev) => {
