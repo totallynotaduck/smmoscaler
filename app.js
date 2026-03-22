@@ -414,7 +414,10 @@
       resultsList.hidden = true;
       resultsList.innerHTML = '';
       if (interestingItemsList) {
-        interestingItemsList.innerHTML = '';
+        interestingItemsList.innerHTML = '<div class="noItemsMsg">Run a search to see interesting items.</div>';
+      }
+      if (toolItemsList) {
+        toolItemsList.innerHTML = '<div class="noItemsMsg">Run a search to see available tools.</div>';
       }
       clearError();
       totalCost.textContent = '-';
@@ -598,33 +601,31 @@
     function renderResults(availableItems, unavailableItems = [], toolItems = []) {
       try {
         resultsList.innerHTML = '';
-        if (availableItems.length === 0 && unavailableItems.length === 0) {
+        const mainAvailableItems = availableItems.filter(isMainOutputItem);
+        const mainUnavailableItems = unavailableItems.filter(isMainOutputItem);
+
+        if (mainAvailableItems.length === 0 && mainUnavailableItems.length === 0) {
           resultsList.hidden = true;
           summary.hidden = true;
           statusEl.textContent = 'No items match the criteria.';
         } else {
           summary.hidden = false;
           resultsList.hidden = false;
-          
-          const mainAvailableItems = availableItems.filter(isMainOutputItem);
-          const mainUnavailableItems = unavailableItems.filter(isMainOutputItem);
-          
+
           if (mainAvailableItems.length > 0) {
             const slots = {};
             for (const it of mainAvailableItems) {
               if (!slots[it.slot]) slots[it.slot] = [];
               slots[it.slot].push(it);
             }
-            
+
             let totalItems = 0;
             for (const slotName of getOrderedSlotNames(slots)) {
               const slotItems = slots[slotName];
-
               sortSlotItems(slotItems, slotName);
-
               totalItems += renderSlotGroup(resultsList, slotName, slotItems);
             }
-            
+
             slotsFilled.textContent = totalItems;
           } else {
             const noAvailableMsg = document.createElement('div');
@@ -633,44 +634,42 @@
             resultsList.appendChild(noAvailableMsg);
             slotsFilled.textContent = 0;
           }
-          
+
           if (mainUnavailableItems.length > 0) {
             const unavailableSection = document.createElement('details');
             unavailableSection.className = 'unavailableSection';
-            
+
             const unavailableSummary = document.createElement('summary');
             unavailableSummary.className = 'unavailableSummary';
             unavailableSummary.textContent = `Unavailable (${mainUnavailableItems.length} items)`;
             unavailableSection.appendChild(unavailableSummary);
-            
+
             const unavailableContent = document.createElement('div');
             unavailableContent.className = 'unavailableContent';
             unavailableSection.appendChild(unavailableContent);
-            
+
             resultsList.appendChild(unavailableSection);
-            
+
             const unavailableSlots = {};
             for (const it of mainUnavailableItems) {
               if (!unavailableSlots[it.slot]) unavailableSlots[it.slot] = [];
               unavailableSlots[it.slot].push(it);
             }
-            
+
             for (const slotName of getOrderedSlotNames(unavailableSlots)) {
               const slotItems = unavailableSlots[slotName];
-
               sortSlotItems(slotItems, slotName);
-
               renderSlotGroup(unavailableContent, slotName, slotItems);
             }
           }
-          
-          const interestingAvailableItems = availableItems.filter(it => !isMainOutputItem(it));
-          const interestingUnavailableItems = unavailableItems.filter(it => !isMainOutputItem(it));
-          renderInterestingItems(interestingAvailableItems, interestingUnavailableItems);
-          renderToolItems(toolItems);
 
           statusEl.textContent = 'Ready.';
         }
+
+        const interestingAvailableItems = availableItems.filter(it => !isMainOutputItem(it));
+        const interestingUnavailableItems = unavailableItems.filter(it => !isMainOutputItem(it));
+        renderInterestingItems(interestingAvailableItems, interestingUnavailableItems);
+        renderToolItems(toolItems);
       } catch (e) {
         console.error('Error rendering results:', e);
         showError(e.message || e);
@@ -900,7 +899,11 @@
     });
 
     document.querySelectorAll('.presetBtn').forEach(btn => {
-      btn.addEventListener('click', () => applyPreset(btn.dataset.preset));
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        applyPreset(btn.dataset.preset);
+      });
     });
 
     resetUiState();
