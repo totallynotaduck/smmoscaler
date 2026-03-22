@@ -8,7 +8,7 @@
   --faint: rgba(255, 255, 255, 0.55);
   --border: rgba(255, 255, 255, 0.12);
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-  --primary: #6ee7ff;
+  --primary: #c084fc;
   --primary2: #a78bfa;
   --danger: #ff6b6b;
   --ok: #34d399;
@@ -38,9 +38,9 @@ body {
     "Apple Color Emoji",
     "Segoe UI Emoji";
   background:
-    radial-gradient(1000px 600px at 20% 10%, rgba(110, 231, 255, 0.18), transparent 55%),
+    radial-gradient(1000px 600px at 20% 10%, rgba(192, 132, 252, 0.18), transparent 55%),
     radial-gradient(800px 500px at 80% 20%, rgba(167, 139, 250, 0.18), transparent 60%),
-    radial-gradient(900px 600px at 60% 85%, rgba(52, 211, 153, 0.1), transparent 55%),
+    radial-gradient(900px 600px at 60% 85%, rgba(192, 132, 252, 0.1), transparent 55%),
     var(--bg);
   color: var(--text);
   min-height: 100vh;
@@ -214,8 +214,8 @@ input[type="checkbox"] {
 }
 
 input[type="checkbox"]:checked {
-  background: linear-gradient(135deg, rgba(110, 231, 255, 0.35), rgba(167, 139, 250, 0.3));
-  border-color: rgba(110, 231, 255, 0.6);
+  background: linear-gradient(135deg, rgba(192, 132, 252, 0.35), rgba(167, 139, 250, 0.3));
+  border-color: rgba(192, 132, 252, 0.6);
 }
 
 input[type="checkbox"]:checked::after {
@@ -236,12 +236,30 @@ input[type="checkbox"]:hover {
 
 input[type="checkbox"]:focus {
   outline: none;
-  box-shadow: 0 0 0 4px rgba(110, 231, 255, 0.15);
+  box-shadow: 0 0 0 4px rgba(192, 132, 252, 0.15);
 }
 
 .label {
   color: var(--muted);
   font-size: 13px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fieldValue {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
 }
 
 input[type="number"] {
@@ -260,6 +278,12 @@ input[type="number"] {
 input[type="number"]:focus {
   border-color: rgba(110, 231, 255, 0.6);
   box-shadow: 0 0 0 4px rgba(110, 231, 255, 0.15);
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--primary);
+  cursor: pointer;
 }
 
 .actions {
@@ -485,7 +509,7 @@ summary {
   border-color: transparent;
   background: linear-gradient(
     135deg,
-    rgba(110, 231, 255, 0.12),
+    rgba(192, 132, 252, 0.12),
     rgba(167, 139, 250, 0.12)
   );
   box-shadow: none;
@@ -497,10 +521,10 @@ summary {
   position: absolute;
   inset: -3px;
   border-radius: 14px;
-  border: 2px solid rgba(110, 231, 255, 0.75);
+  border: 2px solid rgba(192, 132, 252, 0.75);
   box-shadow:
     0 0 0 2px rgba(167, 139, 250, 0.45),
-    0 0 18px rgba(110, 231, 255, 0.55),
+    0 0 18px rgba(192, 132, 252, 0.55),
     0 0 34px rgba(167, 139, 250, 0.45);
   pointer-events: none;
   animation: topPickGlow 1.9s ease-in-out infinite;
@@ -513,7 +537,7 @@ summary {
     transform: scale(1);
     box-shadow:
       0 0 0 2px rgba(167, 139, 250, 0.4),
-      0 0 14px rgba(110, 231, 255, 0.42),
+      0 0 14px rgba(192, 132, 252, 0.42),
       0 0 24px rgba(167, 139, 250, 0.32);
   }
   50% {
@@ -521,7 +545,7 @@ summary {
     transform: scale(1.012);
     box-shadow:
       0 0 0 2px rgba(167, 139, 250, 0.65),
-      0 0 24px rgba(110, 231, 255, 0.68),
+      0 0 24px rgba(192, 132, 252, 0.68),
       0 0 42px rgba(167, 139, 250, 0.55);
   }
 }
@@ -737,16 +761,36 @@ summary {
 
 .unavailableSummary {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
   cursor: pointer;
   margin-bottom: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 107, 107, 0.38);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.16), rgba(255, 107, 107, 0.08));
+  box-shadow: 0 8px 22px rgba(255, 107, 107, 0.14);
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease;
 }
 
 .unavailableSummary:hover {
-  color: var(--accent);
+  border-color: rgba(255, 107, 107, 0.56);
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.24), rgba(255, 107, 107, 0.12));
+  box-shadow: 0 10px 28px rgba(255, 107, 107, 0.2);
+}
+
+.unavailableSummary:active {
+  transform: translateY(1px);
+}
+
+.unavailableSection:not([open]) .unavailableSummary {
+  border-left: 4px solid rgba(255, 107, 107, 0.85);
+}
+
+.unavailableSection[open] .unavailableSummary {
+  background: rgba(255, 107, 107, 0.08);
+  border-color: rgba(255, 107, 107, 0.24);
+  box-shadow: none;
 }
 
 .unavailableContent {

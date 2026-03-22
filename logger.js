@@ -5,6 +5,71 @@
  */
 (function attachLogger(global) {
   function qs(id) { return document.getElementById(id); }
+  const IMPORTED_IDS_STORAGE_KEY = 'smmoscaler_imported_ids_v1';
+
+  function loadImportedIds() {
+    try {
+      const raw = localStorage.getItem(IMPORTED_IDS_STORAGE_KEY);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.map(x => String(x)).filter(Boolean));
+    } catch (e) {
+      return new Set();
+    }
+  }
+
+  function saveImportedIds(idSet) {
+    try {
+      const arr = Array.from(idSet || []).map(x => String(x)).filter(Boolean);
+      localStorage.setItem(IMPORTED_IDS_STORAGE_KEY, JSON.stringify(arr));
+    } catch (e) {
+      // ignore storage failures
+    }
+  }
+
+  function parseJsonFlexible(text) {
+    const source = String(text || '').trim();
+    if (!source) throw new Error('JSON is empty.');
+
+    // 1) Strict JSON first.
+    try {
+      return JSON.parse(source);
+    } catch (firstErr) {
+      // continue with fallbacks
+    }
+
+    // 2) Allow trailing commas before } or ].
+    try {
+      const withoutTrailingCommas = source.replace(/,\s*([}\]])/g, '$1');
+      return JSON.parse(withoutTrailingCommas);
+    } catch (secondErr) {
+      // continue with fallbacks
+    }
+
+    // 3) NDJSON / JSON lines support (one JSON value per line).
+    const lines = source
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+    if (lines.length > 1) {
+      try {
+        return lines.map(line => JSON.parse(line));
+      } catch (thirdErr) {
+        // continue with fallbacks
+      }
+    }
+
+    // 4) Concatenated top-level objects/arrays without commas.
+    try {
+      const merged = source
+        .replace(/}\s*{/g, '},{')
+        .replace(/\]\s*\[/g, '],[');
+      return JSON.parse(`[${merged}]`);
+    } catch (finalErr) {
+      throw new Error(`Unsupported JSON format: ${finalErr && finalErr.message ? finalErr.message : finalErr}`);
+    }
+  }
 
   function extractId(obj) {
     if (obj == null) return null;
@@ -290,6 +355,7 @@
 
     let running = false;
     let abortController = null;
+    let importedIdsForUpdate = loadImportedIds();
 
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -544,7 +610,7 @@
             // strip BOM if present
             if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
 
-            let parsed = JSON.parse(text);
+            let parsed = parseJsonFlexible(text);
             // Accept common wrappers
             if (!Array.isArray(parsed)) {
               if (parsed && Array.isArray(parsed.logs)) parsed = parsed.logs;
@@ -570,6 +636,7 @@
             let imported = 0;
             const merged = existing.slice();
             const now = new Date().toISOString();
+            const importedIdsThisRun = new Set();
             for (const entry of parsed) {
               let id = extractId(entry);
               // If parsed entry is a plain item object (no outer id), try its nested id
@@ -594,6 +661,7 @@
 
               merged.push(toPush);
               seen.add(String(id));
+              importedIdsThisRun.add(String(id));
               imported++;
             }
 
@@ -603,6 +671,8 @@
               global.SMMO_ITEM_LOGS = merged;
             }
             global.LATEST_LOG_ITEM_ID = getLatestLoggedItemId(merged);
+            importedIdsForUpdate = importedIdsThisRun;
+            saveImportedIds(importedIdsForUpdate);
             console.debug('logger: import merged', { imported, total: merged.length, existing: existing.length, parsed: parsed.length });
             status.textContent = `Imported ${imported} items (existing ${existing.length}, parsed ${parsed.length}). Latest ID: ${global.LATEST_LOG_ITEM_ID}`;
           } catch (e) {
@@ -624,12 +694,18 @@
     const updateDbStartBtn = qs('updateDbStartButton');
     const updateDbStartIdInput = qs('updateDbStartIdInput');
     const updateDbStatus = qs('updateDbStatus');
+    const updateImportedStartBtn = qs('updateImportedStartButton');
+    const updateImportedUploadBtn = qs('updateImportedUploadButton');
+    const updateImportedUploadInput = qs('updateImportedUploadInput');
+    const updateImportedStatus = qs('updateImportedStatus');
 
     let updateDbRunning = false;
     let updateDbAbortController = null;
+    let updateImportedRunning = false;
+    let updateImportedAbortController = null;
 
     window.addEventListener('beforeunload', (ev) => {
-      if (!running && !updateDbRunning) return;
+      if (!running && !updateDbRunning && !updateImportedRunning) return;
       ev.preventDefault();
       ev.returnValue = '';
     });
@@ -822,5 +898,237 @@
       updateDbStartBtn.textContent = 'Update database';
       updateDbStatus.textContent = `Database update completed — updated ${updated}, skipped ${skipped}, errors ${errors}.`;
     });
+
+    if (updateImportedStartBtn && updateImportedStatus) {
+      updateImportedStartBtn.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        if (updateImportedRunning) {
+          updateImportedRunning = false;
+          if (updateImportedAbortController) updateImportedAbortController.abort();
+          updateImportedStartBtn.textContent = 'Update imported IDs';
+          updateImportedStatus.textContent = 'Stopping…';
+          return;
+        }
+
+        const apiKey = (apiInput && apiInput.value || '').trim();
+        if (!apiKey) {
+          updateImportedStatus.textContent = 'Provide a public API key to start updating imported IDs.';
+          return;
+        }
+
+        const idsToUpdate = Array.from(importedIdsForUpdate)
+          .map(id => toPositiveInt(id))
+          .filter(id => id > 0)
+          .sort((a, b) => a - b);
+
+        if (idsToUpdate.length === 0) {
+          updateImportedStatus.textContent = 'No imported IDs tracked yet. Import a JSON file first.';
+          return;
+        }
+
+        const config = global.SMMO_SCALER_CONFIG || {};
+        const base = (config.API_BASE_URL || 'https://api.simple-mmo.com/v1').replace(/\/$/, '');
+        const endpointTemplate = (config.ITEM_BY_ID_ENDPOINT || '/item/info/{id}');
+        const method = (config.ITEM_BY_ID_METHOD || 'POST').toUpperCase();
+        const apiKeyMode = (config.API_KEY_MODE || 'header');
+        const apiKeyHeader = config.API_KEY_HEADER_NAME || 'api_key';
+
+        updateImportedRunning = true;
+        updateImportedAbortController = new AbortController();
+        updateImportedStartBtn.textContent = 'Stop imported update';
+        updateImportedStatus.textContent = `Starting imported ID update (${idsToUpdate.length} IDs)…`;
+
+        let updated = 0;
+        let skipped = 0;
+        let errors = 0;
+
+        async function attemptFetchWithFallback(initialUrl, initialOptions, ctx) {
+          const attempts = [];
+          attempts.push({ url: initialUrl, options: initialOptions, label: 'initial' });
+
+          if (ctx.apiKeyMode === 'header' && String(ctx.apiKeyHeader).toLowerCase() !== 'authorization') {
+            const h = Object.assign({}, initialOptions.headers || {});
+            h['Authorization'] = ctx.apiKey.startsWith('Bearer ') ? ctx.apiKey : `Bearer ${ctx.apiKey}`;
+            attempts.push({ url: initialUrl, options: Object.assign({}, initialOptions, { headers: h }), label: 'bearer' });
+          }
+
+          const paramName = (ctx.config && ctx.config.API_KEY_QUERY_PARAM) || 'apiKey';
+          const sep = initialUrl.includes('?') ? '&' : '?';
+          const urlWithQuery = `${initialUrl}${sep}${encodeURIComponent(paramName)}=${encodeURIComponent(ctx.apiKey)}`;
+          attempts.push({ url: urlWithQuery, options: initialOptions, label: 'query' });
+
+          if ((ctx.method || 'POST').toUpperCase() === 'POST') {
+            const opts = Object.assign({}, initialOptions);
+            const h = Object.assign({}, opts.headers || {});
+            h['Content-Type'] = 'application/json';
+            const body = Object.assign({}, opts.body ? JSON.parse(opts.body) : {}, { api_key: ctx.apiKey });
+            opts.headers = h;
+            opts.body = JSON.stringify(body);
+            attempts.push({ url: initialUrl, options: opts, label: 'body' });
+          }
+
+          for (const a of attempts) {
+            const res = await fetchItem(a.url, a.options);
+            if (res.ok) return { ok: true, data: res.data, used: a.label };
+            if (res.error && res.error.message && res.error.message.includes('HTTP 401')) {
+              await sleep(300);
+              continue;
+            }
+            return { ok: false, error: res.error };
+          }
+
+          return { ok: false, error: new Error('All auth attempts failed (401)') };
+        }
+
+        for (const id of idsToUpdate) {
+          if (!updateImportedRunning) break;
+
+          const idStr = String(id);
+          const urlPath = endpointTemplate.includes('{id}')
+            ? endpointTemplate.replace('{id}', encodeURIComponent(idStr))
+            : `${endpointTemplate}/${encodeURIComponent(idStr)}`;
+          const url = `${base}${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
+
+          const headers = { 'Accept': 'application/json' };
+          let requestUrl = url;
+          if (apiKeyMode === 'header') {
+            if (typeof apiKeyHeader === 'string' && apiKeyHeader.toLowerCase() === 'authorization') {
+              headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
+            } else {
+              headers[apiKeyHeader] = apiKey;
+            }
+          } else if (apiKeyMode === 'query') {
+            const paramName = config.API_KEY_QUERY_PARAM || 'apiKey';
+            const sep = requestUrl.includes('?') ? '&' : '?';
+            requestUrl = `${requestUrl}${sep}${encodeURIComponent(paramName)}=${encodeURIComponent(apiKey)}`;
+          }
+
+          const options = { method, headers, signal: updateImportedAbortController.signal };
+          if (method === 'POST' && !endpointTemplate.includes('{id}')) {
+            options.headers['Content-Type'] = 'application/json';
+            options.body = JSON.stringify({ id });
+          }
+
+          updateImportedStatus.textContent = `Refreshing imported ID ${idStr}…`;
+          const ctx = { apiKeyMode, apiKeyHeader, apiKey, config, method };
+          const attemptResult = await attemptFetchWithFallback(requestUrl, options, ctx);
+          if (attemptResult.ok) {
+            const entry = { id: id, fetchedAt: new Date().toISOString(), item: attemptResult.data };
+            const logs = (global.SMMO_LOGS && typeof global.SMMO_LOGS.get === 'function')
+              ? global.SMMO_LOGS.get()
+              : (global.SMMO_ITEM_LOGS || []);
+
+            const existingIndex = logs.findIndex(e => String(e.id) === String(id));
+            if (existingIndex !== -1) {
+              logs[existingIndex] = entry;
+              updated++;
+            } else {
+              skipped++;
+            }
+
+            if (global.SMMO_LOGS && typeof global.SMMO_LOGS.set === 'function') {
+              global.SMMO_LOGS.set(logs);
+            } else {
+              global.SMMO_ITEM_LOGS = logs;
+            }
+
+            updateImportedStatus.textContent = `Updated ${updated}/${idsToUpdate.length} imported IDs — last ${idStr} (auth: ${attemptResult.used || 'unknown'})`;
+          } else {
+            const msg = attemptResult.error && attemptResult.error.message ? attemptResult.error.message : String(attemptResult.error);
+            if (msg.includes('HTTP 404')) {
+              skipped++;
+              updateImportedStatus.textContent = `Imported ID ${idStr} not found - skipping`;
+            } else {
+              errors++;
+              updateImportedStatus.textContent = `Fetch error for imported ID ${idStr}: ${msg}`;
+            }
+          }
+
+          try { await sleep(2000); } catch (e) { /* ignore */ }
+        }
+
+        updateImportedRunning = false;
+        updateImportedAbortController = null;
+        updateImportedStartBtn.textContent = 'Update imported IDs';
+        updateImportedStatus.textContent = `Imported ID update completed — updated ${updated}, skipped ${skipped}, errors ${errors}.`;
+      });
+    }
+
+    if (updateImportedUploadBtn && updateImportedUploadInput && updateImportedStatus) {
+      updateImportedUploadBtn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        updateImportedUploadInput.click();
+      });
+
+      updateImportedUploadInput.addEventListener('change', (ev) => {
+        const f = ev.target.files && ev.target.files[0];
+        if (!f) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            let text = reader.result;
+            if (typeof text !== 'string') text = String(text || '');
+            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+            const parsed = parseJsonFlexible(text);
+            const foundIds = new Set();
+
+            function pushIdFrom(value) {
+              const n = toPositiveInt(value);
+              if (n > 0) foundIds.add(String(n));
+            }
+
+            function walk(node) {
+              if (node == null) return;
+
+              if (Array.isArray(node)) {
+                for (const item of node) walk(item);
+                return;
+              }
+
+              if (typeof node === 'object') {
+                const id = extractId(node);
+                if (id) pushIdFrom(id);
+
+                if (Array.isArray(node.ids)) {
+                  for (const idValue of node.ids) pushIdFrom(idValue);
+                }
+                if (Array.isArray(node.item_ids)) {
+                  for (const idValue of node.item_ids) pushIdFrom(idValue);
+                }
+
+                if (node.logs) walk(node.logs);
+                if (node.items) walk(node.items);
+                if (node.data) walk(node.data);
+                return;
+              }
+
+              pushIdFrom(node);
+            }
+
+            walk(parsed);
+
+            if (foundIds.size === 0) {
+              updateImportedStatus.textContent = 'Upload failed: no valid item IDs found in JSON.';
+              return;
+            }
+
+            importedIdsForUpdate = foundIds;
+            saveImportedIds(importedIdsForUpdate);
+            updateImportedStatus.textContent = `Loaded ${foundIds.size} custom IDs for imported-ID updates.`;
+          } catch (e) {
+            updateImportedStatus.textContent = `Upload failed: ${e && e.message ? e.message : e}`;
+          }
+        };
+
+        reader.onerror = () => {
+          updateImportedStatus.textContent = 'Upload failed: file read error.';
+        };
+
+        reader.readAsText(f);
+        updateImportedUploadInput.value = '';
+      });
+    }
   });
 })(window);

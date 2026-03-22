@@ -18,6 +18,8 @@
     const levelInput = qs('levelInput');
     const goldInput = qs('goldInput');
     const minPowerInput = qs('minPowerInput');
+    const defWeightInput = qs('defWeightInput');
+    const defWeightValue = qs('defWeightValue');
     const specialAttacksCheckbox = qs('specialAttacksCheckbox');
     const statusEl = qs('status');
     const errorEl = qs('error');
@@ -65,6 +67,19 @@
       if (!cleaned) return null;
       const parsed = Number(cleaned);
       return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function getDefWeight() {
+      const fallback = 0.3;
+      if (!defWeightInput) return fallback;
+      const parsed = Number(defWeightInput.value);
+      if (!Number.isFinite(parsed)) return fallback;
+      return Math.min(1, Math.max(0, parsed));
+    }
+
+    function updateDefWeightLabel() {
+      if (!defWeightValue) return;
+      defWeightValue.textContent = getDefWeight().toFixed(2);
     }
 
     function getSlotKey(slot) {
@@ -138,6 +153,7 @@
       totalPower.textContent = '—';
       slotsFilled.textContent = '—';
       statusEl.textContent = 'Ready.';
+      updateDefWeightLabel();
     }
 
     function buildSummaryText() {
@@ -270,7 +286,7 @@
       });
     }
 
-    function normalizeItem(raw, includeCritBonus = false, playerLevel = 1, loggedItemId = null) {
+    function normalizeItem(raw, includeCritBonus = false, playerLevel = 1, defWeight = 0.3, loggedItemId = null) {
       if (!raw) return null;
       const id = raw.id || raw.item_id || raw.itemId || raw._id || String(raw.id || raw.item_id || raw.itemId || '');
       const name = raw.name || raw.item_name || raw.title || `Item ${id}`;
@@ -285,7 +301,7 @@
       const marketLowRaw = raw['market-low'] ?? raw.market_low ?? raw.marketLow ?? (raw.market && raw.market.low);
       const marketLow = parseNumber(marketLowRaw);
       
-      // Calculate power based on stats: str = 1 point, def = 0.3 points
+      // Calculate power based on stats: str = 1 point, def = configurable weight
       let power = 0;
       const stats = [];
       const statPairs = [
@@ -303,7 +319,7 @@
         }
 
         if (statKey === 'str') power += modifier * 1;
-        else if (statKey === 'def') power += modifier * 0.3;
+        else if (statKey === 'def') power += modifier * defWeight;
         else if (statKey === 'crit' && includeCritBonus) {
           // Formula: Player Level x 2 x Crit Value/1000
           power += playerLevel * 2 * (modifier / 1000);
@@ -338,10 +354,11 @@
         const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
         let items = [];
         const includeCritBonus = specialAttacksCheckbox.checked;
+        const defWeight = getDefWeight();
         if (rawLogs.length > 0) {
           // Normalize items from logs, filtering out nulls (which are 404 entries)
           items = rawLogs
-            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level, l.id) : null)
+            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level, defWeight, l.id) : null)
             .filter(it => it !== null);
           configStatus.textContent = `Using ${items.length} items from logs (${rawLogs.length} total entries)`;
         } else {
@@ -644,9 +661,10 @@
         const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
         let items = [];
         const includeCritBonus = specialAttacksCheckbox.checked;
+        const defWeight = getDefWeight();
         if (rawLogs.length > 0) {
           items = rawLogs
-            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level, l.id) : null)
+            .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level, defWeight, l.id) : null)
             .filter(it => it !== null);
         } else {
           items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
@@ -706,8 +724,14 @@
         minPowerInput.value = '0';
         specialAttacksCheckbox.checked = false;
       }
+      updateDefWeightLabel();
       resetUiState();
     });
+
+    if (defWeightInput) {
+      defWeightInput.addEventListener('input', updateDefWeightLabel);
+      defWeightInput.addEventListener('change', updateDefWeightLabel);
+    }
 
     resetUiState();
   });
