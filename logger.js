@@ -22,6 +22,24 @@
     }
   }
 
+  function validateApiKey(rawValue) {
+    const apiKey = String(rawValue || '').trim();
+    if (!apiKey) {
+      return { ok: false, message: 'Provide a public API key.' };
+    }
+
+    // Public API keys should be a compact token, not pasted prose/list content.
+    if (/\s/.test(apiKey)) {
+      return { ok: false, message: 'API key looks invalid (contains spaces/newlines). Paste only your public API key.' };
+    }
+
+    if (apiKey.length < 8) {
+      return { ok: false, message: 'API key looks too short. Paste your full public API key.' };
+    }
+
+    return { ok: true, apiKey };
+  }
+
   function parseJsonFlexible(text) {
     const source = String(text || '').trim();
     if (!source) throw new Error('JSON is empty.');
@@ -916,6 +934,7 @@
           updateImportedStatus.textContent = 'Provide a public API key to start updating imported IDs.';
           return;
         }
+        const apiKey = keyCheck.apiKey;
 
         const idsToUpdate = Array.from(importedIdsForUpdate)
           .map(id => toPositiveInt(id))
@@ -964,8 +983,6 @@
             let text = reader.result;
             if (typeof text !== 'string') text = String(text || '');
             if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-
-            const parsed = parseJsonFlexible(text);
             const foundIds = new Set();
 
             function pushIdFrom(value) {
@@ -1001,7 +1018,20 @@
               pushIdFrom(node);
             }
 
-            walk(parsed);
+            // First try structured JSON parsing.
+            try {
+              const parsed = parseJsonFlexible(text);
+              walk(parsed);
+            } catch (jsonErr) {
+              // Ignore parse failure here and fall back to loose text scanning.
+            }
+
+            // Fallback/augment: scan any loose text for numeric IDs and ignore
+            // all alphabetic/symbol content (e.g. pasted notes or instructions).
+            const numericTokens = String(text).match(/\b\d+\b/g) || [];
+            for (const token of numericTokens) {
+              pushIdFrom(token);
+            }
 
             if (foundIds.size === 0) {
               updateImportedStatus.textContent = 'Upload failed: no valid item IDs found in JSON.';
