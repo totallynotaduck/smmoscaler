@@ -776,6 +776,10 @@
       return div;
     }
 
+    function toTitleCase(str) {
+      return String(str || '').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
     function renderSlotGroup(container, slotName, sortedSlotItems) {
       const top5 = sortedSlotItems.slice(0, 5);
 
@@ -784,7 +788,7 @@
 
       const slotHeader = document.createElement('div');
       slotHeader.className = 'slotHeader';
-      slotHeader.textContent = `${slotName} (${top5.length} items)`;
+      slotHeader.textContent = `${toTitleCase(slotName)} (${top5.length} items)`;
       slotGroup.appendChild(slotHeader);
 
       const slotLayout = document.createElement('div');
