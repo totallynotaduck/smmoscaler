@@ -14,9 +14,12 @@
     const levelInput = qs('levelInput');
     const goldInput = qs('goldInput');
     const minPowerInput = qs('minPowerInput');
+    const strWeightInput = qs('strWeightInput');
+    const strWeightValue = qs('strWeightValue');
     const defWeightInput = qs('defWeightInput');
     const defWeightValue = qs('defWeightValue');
-    const specialAttacksCheckbox = qs('specialAttacksCheckbox');
+    const critWeightInput = qs('critWeightInput');
+    const critWeightValue = qs('critWeightValue');
     const statusEl = qs('status');
     const errorEl = qs('error');
     const resultsList = qs('resultsList');
@@ -65,18 +68,26 @@
     let sortBy = 'power';
     let budgetCapEnabled = false;
 
+    const PRESETS = {
+      offensive: { str: 1.5, def: 0.1, crit: 0.5 },
+      balanced:  { str: 1.0, def: 0.5, crit: 0.3 },
+      tank:      { str: 0.3, def: 1.5, crit: 0.1 }
+    };
+
     let cachedNormalizedItems = null;
     let cachedLogsRef = null;
-    let cachedIncludeCrit = null;
+    let cachedStrWeight = null;
     let cachedDefWeight = null;
+    let cachedCritWeight = null;
     let cachedLevel = null;
 
-    function getNormalizedItems(rawLogs, includeCritBonus, level, defWeight) {
+    function getNormalizedItems(rawLogs, level, weights) {
       if (
         cachedNormalizedItems &&
         cachedLogsRef === rawLogs &&
-        cachedIncludeCrit === includeCritBonus &&
-        cachedDefWeight === defWeight &&
+        cachedStrWeight === weights.str &&
+        cachedDefWeight === weights.def &&
+        cachedCritWeight === weights.crit &&
         cachedLevel === level
       ) {
         return cachedNormalizedItems;
@@ -85,13 +96,14 @@
       for (let i = 0; i < rawLogs.length; i++) {
         const l = rawLogs[i];
         if (l.item) {
-          const normalized = normalizeItem(l.item, includeCritBonus, level, defWeight, l.id);
+          const normalized = normalizeItem(l.item, level, weights, l.id);
           if (normalized) cachedNormalizedItems.push(normalized);
         }
       }
       cachedLogsRef = rawLogs;
-      cachedIncludeCrit = includeCritBonus;
-      cachedDefWeight = defWeight;
+      cachedStrWeight = weights.str;
+      cachedDefWeight = weights.def;
+      cachedCritWeight = weights.crit;
       cachedLevel = level;
       return cachedNormalizedItems;
     }
@@ -108,12 +120,18 @@
       return Number.isFinite(parsed) ? parsed : null;
     }
 
-    function getDefWeight() {
-      const fallback = 0.3;
-      if (!defWeightInput) return fallback;
-      const parsed = Number(defWeightInput.value);
-      if (!Number.isFinite(parsed)) return fallback;
-      return Math.min(1, Math.max(0, parsed));
+    function getSliderValue(input, fallback) {
+      if (!input) return fallback;
+      const parsed = Number(input.value);
+      return Number.isFinite(parsed) ? Math.min(2, Math.max(0, parsed)) : fallback;
+    }
+
+    function getStatWeights() {
+      return {
+        str: getSliderValue(strWeightInput, 1.0),
+        def: getSliderValue(defWeightInput, 0.3),
+        crit: getSliderValue(critWeightInput, 0.0)
+      };
     }
 
     function toFiniteNumber(value, fallback = 0) {
@@ -122,9 +140,32 @@
       return parsed;
     }
 
-    function updateDefWeightLabel() {
-      if (!defWeightValue) return;
-      defWeightValue.textContent = getDefWeight().toFixed(2);
+    function updateWeightLabels() {
+      if (strWeightValue) strWeightValue.textContent = getSliderValue(strWeightInput, 1.0).toFixed(2);
+      if (defWeightValue) defWeightValue.textContent = getSliderValue(defWeightInput, 0.3).toFixed(2);
+      if (critWeightValue) critWeightValue.textContent = getSliderValue(critWeightInput, 0.0).toFixed(2);
+      updatePresetHighlight();
+    }
+
+    function applyPreset(name) {
+      const preset = PRESETS[name];
+      if (!preset) return;
+      if (strWeightInput) strWeightInput.value = preset.str;
+      if (defWeightInput) defWeightInput.value = preset.def;
+      if (critWeightInput) critWeightInput.value = preset.crit;
+      updateWeightLabels();
+    }
+
+    function updatePresetHighlight() {
+      const weights = getStatWeights();
+      document.querySelectorAll('.presetBtn').forEach(btn => {
+        const preset = PRESETS[btn.dataset.preset];
+        if (!preset) return;
+        const match = Math.abs(weights.str - preset.str) < 0.02 &&
+                      Math.abs(weights.def - preset.def) < 0.02 &&
+                      Math.abs(weights.crit - preset.crit) < 0.02;
+        btn.classList.toggle('active', match);
+      });
     }
 
     function getSlotKey(slot) {
@@ -291,11 +332,10 @@
       const gold = toFiniteNumber(goldInput.value, 0);
       const rawLogs = (window.SMMO_ITEM_LOGS && Array.isArray(window.SMMO_ITEM_LOGS)) ? window.SMMO_ITEM_LOGS : [];
       let items = [];
-      const includeCritBonus = specialAttacksCheckbox.checked;
-      const defWeight = getDefWeight();
+      const weights = getStatWeights();
 
       if (rawLogs.length > 0) {
-        items = getNormalizedItems(rawLogs, includeCritBonus, level, defWeight);
+        items = getNormalizedItems(rawLogs, level, weights);
         configStatus.textContent = `Using ${items.length} items from logs (${rawLogs.length} total entries)`;
       } else {
         items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
@@ -368,7 +408,7 @@
       totalPower.textContent = '-';
       slotsFilled.textContent = '-';
       statusEl.textContent = 'Ready.';
-      updateDefWeightLabel();
+      updateWeightLabels();
     }
 
     function buildSummaryText() {
@@ -479,7 +519,7 @@
       });
     }
 
-    function normalizeItem(raw, includeCritBonus = false, playerLevel = 1, defWeight = 0.3, loggedItemId = null) {
+    function normalizeItem(raw, playerLevel = 1, weights = { str: 1, def: 0.3, crit: 0 }, loggedItemId = null) {
       if (!raw) return null;
       const id = raw.id || raw.item_id || raw.itemId || raw._id || String(raw.id || raw.item_id || raw.itemId || '');
       const name = raw.name || raw.item_name || raw.title || `Item ${id}`;
@@ -489,10 +529,10 @@
       const rarity = raw.rarity || raw.rarity_name || raw.rarityName || raw.item_rarity || raw.itemRarity || null;
       const custom_item = raw.custom_item || raw.customItem || raw.is_custom || raw.isCustom || null;
       const customItemTag = raw.custom_item_tag || raw.customItemTag || raw.item_tag || raw.itemTag || null;
-      
+
       const marketLowRaw = raw['market-low'] ?? raw.market_low ?? raw.marketLow ?? (raw.market && raw.market.low);
       const marketLow = parseNumber(marketLowRaw);
-      
+
       let power = 0;
       const stats = [];
       const statPairs = [
@@ -509,11 +549,9 @@
           stats.push({ key: statKey, value: modifier });
         }
 
-        if (statKey === 'str') power += modifier * 1;
-        else if (statKey === 'def') power += modifier * defWeight;
-        else if (statKey === 'crit' && includeCritBonus) {
-          power += playerLevel * 2 * (modifier / 1000);
-        }
+        if (statKey === 'str') power += modifier * weights.str;
+        else if (statKey === 'def') power += modifier * weights.def;
+        else if (statKey === 'crit') power += playerLevel * 2 * (modifier / 1000) * weights.crit;
       }
       
       return {
@@ -830,16 +868,20 @@
         levelInput.value = '1';
         goldInput.value = '0';
         minPowerInput.value = '0';
-        specialAttacksCheckbox.checked = false;
       }
-      updateDefWeightLabel();
+      updateWeightLabels();
       resetUiState();
     });
 
-    if (defWeightInput) {
-      defWeightInput.addEventListener('input', updateDefWeightLabel);
-      defWeightInput.addEventListener('change', updateDefWeightLabel);
-    }
+    [strWeightInput, defWeightInput, critWeightInput].forEach(input => {
+      if (!input) return;
+      input.addEventListener('input', updateWeightLabels);
+      input.addEventListener('change', updateWeightLabels);
+    });
+
+    document.querySelectorAll('.presetBtn').forEach(btn => {
+      btn.addEventListener('click', () => applyPreset(btn.dataset.preset));
+    });
 
     resetUiState();
   });

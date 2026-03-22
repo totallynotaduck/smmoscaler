@@ -37,8 +37,37 @@
             <p class="subtitle">by <a href="https://anartisticraven.rf.gd/?i=1" target="_blank" rel="noopener noreferrer" class="subtitleLink">Alpha</a></p>
           </div>
         </div>
-        <div class="headerRight" id="configStatus" hidden></div>
+        <div class="headerRight">
+          <button type="button" class="aboutToggle" id="aboutToggle" aria-label="About this tool">?</button>
+        </div>
+        <div id="configStatus" hidden></div>
       </header>
+
+      <!-- About Panel -->
+      <div id="aboutPanel" class="aboutPanel" hidden>
+        <div class="aboutPanelContent">
+          <div class="aboutCreator">
+            Created by <strong>Alpha</strong> (User ID: 28790)
+          </div>
+          <p>A gear optimization calculator for SimpleMMO players. Analyzes available items and ranks them by power to help you make informed purchasing decisions.</p>
+          <div class="aboutColumns">
+            <div>
+              <h3>Key Features</h3>
+              <ul>
+                <li>Calculates the best equipment based on your level and gold</li>
+                <li>Power formula considers Strength, Defence, and Crit% values</li>
+                <li>Configurable stat weights with presets</li>
+                <li>Local API logging - futureproof and hassle-free</li>
+                <li>Community-maintained item database</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Open Source</h3>
+              <p>This tool is free and open-source. The database can be maintained by anyone, ensuring it stays current with game updates. If you find it useful, a simple thank you makes my day!</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Main two-column layout -->
       <div class="layout">
@@ -95,30 +124,40 @@
                   />
                 </label>
 
-                <label class="formField">
-                  <span class="formLabelRow">
-                    <span class="formLabel">DEF Weight</span>
-                    <span class="formBadge" id="defWeightValue">0.30</span>
-                  </span>
-                  <input
-                    id="defWeightInput"
-                    name="defWeight"
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value="0.3"
-                  />
-                </label>
+              </div>
 
-                <label class="formField formField--check">
-                  <input
-                    id="specialAttacksCheckbox"
-                    name="specialAttacks"
-                    type="checkbox"
-                  />
-                  <span class="formLabel">Include Special Attacks</span>
-                </label>
+              <div class="statWeights">
+                <div class="statWeightsHeader">
+                  <span class="formLabel">Stat Weights</span>
+                  <div class="presetButtons">
+                    <button type="button" class="btn btn--sm presetBtn" data-preset="offensive">Offensive</button>
+                    <button type="button" class="btn btn--sm presetBtn" data-preset="balanced">Balanced</button>
+                    <button type="button" class="btn btn--sm presetBtn" data-preset="tank">Tank</button>
+                  </div>
+                </div>
+                <div class="statSliders">
+                  <label class="statSlider">
+                    <span class="statSliderRow">
+                      <span class="statSliderLabel">STR</span>
+                      <span class="formBadge" id="strWeightValue">1.00</span>
+                    </span>
+                    <input id="strWeightInput" name="strWeight" type="range" min="0" max="2" step="0.01" value="1" />
+                  </label>
+                  <label class="statSlider">
+                    <span class="statSliderRow">
+                      <span class="statSliderLabel">DEF</span>
+                      <span class="formBadge" id="defWeightValue">0.30</span>
+                    </span>
+                    <input id="defWeightInput" name="defWeight" type="range" min="0" max="2" step="0.01" value="0.3" />
+                  </label>
+                  <label class="statSlider">
+                    <span class="statSliderRow">
+                      <span class="statSliderLabel">Crit</span>
+                      <span class="formBadge" id="critWeightValue">0.00</span>
+                    </span>
+                    <input id="critWeightInput" name="critWeight" type="range" min="0" max="2" step="0.01" value="0" />
+                  </label>
+                </div>
               </div>
 
               <div class="formActions">
@@ -133,21 +172,15 @@
               <summary>How It Works</summary>
               <div class="howItWorksBody">
                 <ol>
-                  <li>Input your level and budget in gold.</li>
-                  <li>The tool lists the top 5 items ranked by total Power.</li>
-                  <li>Toggle between sorting by most power or best value.</li>
-                  <li>Power Calculation:
-                    <ul>
-                      <li>Strength = 1 point</li>
-                      <li>Defence = DEF weight slider (default 0.30)</li>
-                      <li>Crit% = Level x 2 points (when special attacks are toggled)</li>
-                    </ul>
-                  </li>
-                  <li>Unavailable items: Potentially better, but not found in market.</li>
-                  <li>Interesting items: Non-equipment items.</li>
-                  <li>Available gold applies per-item; estimated cost is for all items.</li>
-                  <li>Data is a rough estimate based off the last database update.</li>
+                  <li>Enter your level and how much gold you can spend per item.</li>
+                  <li>Adjust stat weights to match your playstyle, or pick a preset.</li>
+                  <li>Hit <strong>Find Best Gear</strong> to see the top 5 items per slot.</li>
+                  <li>Switch between <strong>Power</strong> (raw strength) and <strong>Value</strong> (best bang for your gold) sorting.</li>
+                  <li>Enable <strong>Budget Cap</strong> to find the best full loadout within your total gold.</li>
                 </ol>
+                <p><strong>Power formula:</strong> Each stat is multiplied by its weight slider. Crit uses <em>Level x 2 x (Crit / 1000) x Weight</em>.</p>
+                <p><strong>Unavailable</strong> items may be stronger but have no market listing. <strong>Tools</strong> and <strong>Interesting Items</strong> are shown in their own sections.</p>
+                <p>All data is estimated from the last database update.</p>
               </div>
             </details>
           </section>
@@ -305,32 +338,6 @@
             </div>
           </section>
 
-          <!-- About -->
-          <section class="panel">
-            <details>
-              <summary class="panelToggle">About This Tool</summary>
-              <div class="aboutContent">
-                <div class="aboutCreator">
-                  Created by <strong>Alpha</strong> (User ID: 28790)
-                </div>
-
-                <p>A gear optimization calculator for SimpleMMO players. Analyzes available items and ranks them by power to help you make informed purchasing decisions.</p>
-
-                <h3>Key Features</h3>
-                <ul>
-                  <li>Calculates the best equipment based on your level and gold</li>
-                  <li>Power formula considers Strength, Defence, and Crit% values</li>
-                  <li>Special attack / Crit-based gear analysis</li>
-                  <li>Local API logging - futureproof and hassle-free</li>
-                  <li>Community-maintained item database</li>
-                </ul>
-
-                <h3>Open Source</h3>
-                <p>This tool is free and open-source. The database can be maintained by anyone, ensuring it stays current with game updates. If you find it useful, a simple thank you makes my day!</p>
-              </div>
-            </details>
-          </section>
-
         </aside>
       </div>
 
@@ -343,6 +350,14 @@
 
     </div>
 
+    <script>
+      document.getElementById('aboutToggle').addEventListener('click', function() {
+        var panel = document.getElementById('aboutPanel');
+        var hidden = panel.hidden;
+        panel.hidden = !hidden;
+        this.classList.toggle('active', hidden);
+      });
+    </script>
     <script src="./logs.js"></script>
     <script src="./config.js"></script>
     <script src="./app.js"></script>
