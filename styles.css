@@ -475,6 +475,17 @@ details[open] > .panelToggle::before {
   color: var(--accent);
 }
 
+.resetWeightsBtn {
+  border-color: rgba(239, 100, 97, 0.3);
+  color: var(--danger);
+}
+
+.resetWeightsBtn:hover {
+  background: var(--danger-muted);
+  border-color: rgba(239, 100, 97, 0.5);
+  color: var(--danger);
+}
+
 
 .statSlider {
   display: flex;

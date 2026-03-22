@@ -68,6 +68,7 @@
     let sortBy = 'power';
     let budgetCapEnabled = false;
 
+    const DEFAULT_WEIGHTS = { str: 1.0, def: 0.3, crit: 0.0 };
     const PRESETS = {
       offensive: { str: 1.5, def: 0.1, crit: 0.5 },
       balanced:  { str: 1.0, def: 0.5, crit: 0.3 },
@@ -158,6 +159,12 @@
 
     function updatePresetHighlight() {
       const weights = getStatWeights();
+      const isDefault = Math.abs(weights.str - DEFAULT_WEIGHTS.str) < 0.02 &&
+                        Math.abs(weights.def - DEFAULT_WEIGHTS.def) < 0.02 &&
+                        Math.abs(weights.crit - DEFAULT_WEIGHTS.crit) < 0.02;
+      const resetBtn = qs('resetWeightsBtn');
+      if (resetBtn) resetBtn.hidden = isDefault;
+
       document.querySelectorAll('.presetBtn').forEach(btn => {
         const preset = PRESETS[btn.dataset.preset];
         if (!preset) return;
@@ -166,6 +173,13 @@
                       Math.abs(weights.crit - preset.crit) < 0.02;
         btn.classList.toggle('active', match);
       });
+    }
+
+    function resetWeights() {
+      if (strWeightInput) strWeightInput.value = DEFAULT_WEIGHTS.str;
+      if (defWeightInput) defWeightInput.value = DEFAULT_WEIGHTS.def;
+      if (critWeightInput) critWeightInput.value = DEFAULT_WEIGHTS.crit;
+      updateWeightLabels();
     }
 
     function getSlotKey(slot) {
@@ -897,6 +911,15 @@
       input.addEventListener('input', updateWeightLabels);
       input.addEventListener('change', updateWeightLabels);
     });
+
+    const resetWeightsBtn = qs('resetWeightsBtn');
+    if (resetWeightsBtn) {
+      resetWeightsBtn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        resetWeights();
+      });
+    }
 
     document.querySelectorAll('.presetBtn').forEach(btn => {
       btn.addEventListener('click', (ev) => {
