@@ -298,19 +298,26 @@ def main():
         raise ValueError("No INSERT INTO items VALUES blocks found in SQL file.")
 
     merged = list(existing)
-    seen = {entry_id for entry_id in (extract_entry_id(e) for e in existing) if entry_id}
+    # Build seen set with explicit loop - one call per entry, no intermediate generator
+    seen = set()
+    for e in existing:
+        entry_id = extract_entry_id(e)
+        if entry_id:
+            seen.add(entry_id)
 
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     parsed_rows = 0
     added_rows = 0
+    bad_rows = 0
 
-    for block in blocks:
+    for block_idx, block in enumerate(blocks):
         tuples = parse_tuples_from_block(block)
-        for tuple_text in tuples:
+        for tuple_idx, tuple_text in enumerate(tuples):
             cols = parse_tuple_fields(tuple_text)
             parsed_rows += 1
             entry = build_log_entry(cols, now_iso)
             if not entry:
+                bad_rows += 1
                 continue
 
             entry_id = str(entry["id"])
@@ -329,6 +336,7 @@ def main():
         "existing": len(existing),
         "parsedRows": parsed_rows,
         "addedRows": added_rows,
+        "badRows": bad_rows,
         "total": len(merged),
     }
     print(json.dumps(result, indent=2))

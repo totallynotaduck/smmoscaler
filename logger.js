@@ -114,19 +114,22 @@
   }
 
   function mergeLogEntries(existing, incomingEntries) {
-    const seen = new Set(existing.map(e => extractId(e)).filter(Boolean));
+    // Build seen set in one pass - extractId called once per existing entry
+    const seen = new Set();
+    for (let i = 0; i < existing.length; i++) {
+      const id = extractId(existing[i]);
+      if (id) seen.add(String(id));
+    }
     let imported = 0;
     const merged = existing.slice();
     const now = new Date().toISOString();
 
     for (const entry of incomingEntries) {
       let id = extractId(entry);
-      if (!id && entry && typeof entry === 'object' && (entry.name || entry.item_name || entry.minLevel)) {
-        id = extractId(entry);
-      }
       if (!id && entry && entry.item && typeof entry.item === 'object') id = extractId(entry.item);
       if (!id) continue;
-      if (seen.has(String(id))) continue;
+      const idStr = String(id);
+      if (seen.has(idStr)) continue;
 
       let toPush = entry;
       if (!(entry && entry.id) && entry && entry.item) {
@@ -138,7 +141,7 @@
       }
 
       merged.push(toPush);
-      seen.add(String(id));
+      seen.add(idStr);
       imported++;
     }
 
@@ -150,27 +153,35 @@
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   // Rate limiter: tracks API calls to stay within 40/min.
-  // Uses a sliding window of timestamps for actual calls made.
+  // Uses a sliding window of timestamps with an index pointer (O(1) pruning).
   const RATE_LIMIT = 40;
   const RATE_WINDOW_MS = 60000;
   const MIN_INTERVAL_MS = Math.ceil(RATE_WINDOW_MS / RATE_LIMIT); // 1500ms
   const callTimestamps = [];
+  let callTsOldest = 0; // index pointer - avoids O(n) shift()
 
   async function rateLimitWait(statusEl) {
     const now = Date.now();
-    // Prune timestamps older than the window
-    while (callTimestamps.length > 0 && callTimestamps[0] <= now - RATE_WINDOW_MS) {
-      callTimestamps.shift();
+    // Prune timestamps older than the window by advancing index
+    while (callTsOldest < callTimestamps.length && callTimestamps[callTsOldest] <= now - RATE_WINDOW_MS) {
+      callTsOldest++;
+    }
+    // Compact array periodically to avoid unbounded memory growth
+    if (callTsOldest > 100) {
+      callTimestamps.splice(0, callTsOldest);
+      callTsOldest = 0;
     }
 
-    if (callTimestamps.length >= RATE_LIMIT) {
-      // Wait until the oldest call falls outside the window
-      const waitUntil = callTimestamps[0] + RATE_WINDOW_MS;
+    const activeCount = callTimestamps.length - callTsOldest;
+
+    if (activeCount >= RATE_LIMIT) {
+      // Wait until the oldest active call falls outside the window
+      const waitUntil = callTimestamps[callTsOldest] + RATE_WINDOW_MS;
       const waitMs = waitUntil - now + 100; // +100ms safety margin
       if (statusEl) {
         statusEl.textContent = `Rate limit reached (${RATE_LIMIT}/min). Waiting ${Math.ceil(waitMs / 1000)}s…`;
       }
-      console.debug('logger: rate limit wait', { waitMs, callsInWindow: callTimestamps.length });
+      console.debug('logger: rate limit wait', { waitMs, callsInWindow: activeCount });
       await sleep(waitMs);
     } else if (callTimestamps.length > 0) {
       // Enforce minimum interval between calls
@@ -345,7 +356,7 @@
 
       // 401 = wrong auth method, try next
       if (res.status === 401) {
-        console.debug('logger: 401 for auth method:', method, '— trying next');
+        console.debug('logger: 401 for auth method:', method, '- trying next');
         continue;
       }
 
@@ -394,13 +405,13 @@
       }
     }
 
-    return { ok: false, status: 429, rateLimited: true, error: new Error('HTTP 429 — rate limit retries exhausted') };
+    return { ok: false, status: 429, rateLimited: true, error: new Error('HTTP 429 - rate limit retries exhausted') };
   }
 
   // Batched localStorage writes: update the in-memory array immediately,
   // but only flush to localStorage every FLUSH_INTERVAL items or FLUSH_MS.
-  const FLUSH_INTERVAL = 10;
-  const FLUSH_MS = 15000;
+  const FLUSH_INTERVAL = 50;
+  const FLUSH_MS = 30000;
   let pendingFlush = 0;
   let lastFlushTime = Date.now();
 
@@ -577,10 +588,18 @@
 
       if (indexedFiles) {
         console.debug('logger: using indexed files from smmoscaler-logs.index.json');
-        for (const filePath of indexedFiles) {
-          const payload = await fetchJsonIfPresent(filePath);
-          if (payload) sources.push({ path: filePath, payload });
-          else console.warn('logger: listed log file missing/unreadable', filePath);
+        // Fetch all indexed files in parallel for faster loading
+        const results = await Promise.allSettled(
+          indexedFiles.map(filePath =>
+            fetchJsonIfPresent(filePath).then(payload => ({ path: filePath, payload }))
+          )
+        );
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value.payload) {
+            sources.push(result.value);
+          } else if (result.status === 'fulfilled') {
+            console.warn('logger: listed log file missing/unreadable', result.value.path);
+          }
         }
       } else {
         console.debug('logger: no index file found, probing for log files');
@@ -665,14 +684,14 @@
         updateLogEntry(id, entry, mode);
         added++;
         consecutive404 = 0;
-        statusEl.textContent = `${mode === 'replace' ? 'Updated' : 'Added'} ${added} items — last ${id}`;
+        statusEl.textContent = `${mode === 'replace' ? 'Updated' : 'Added'} ${added} items - last ${id}`;
       } else {
         const msg = result.error && result.error.message ? result.error.message : String(result.error);
         if (result.rateLimited || msg.includes('HTTP 429')) {
           errors++;
           statusEl.textContent = `Rate limited while fetching ${id}. Retries exhausted.`;
         } else if (msg.includes('HTTP 404')) {
-          // Don't store null entries — just track the ID for resume
+          // Don't store null entries - just track the ID for resume
           const numId = parseInt(String(id)) || 0;
           if (numId > (global.LATEST_LOG_ITEM_ID || 0)) {
             global.LATEST_LOG_ITEM_ID = numId;
@@ -683,7 +702,7 @@
 
           // Stop if too many consecutive 404s (likely past last real item)
           if (consecutive404 >= MAX_CONSECUTIVE_404) {
-            statusEl.textContent = `Stopped — ${MAX_CONSECUTIVE_404} consecutive items not found (likely past last item). Added ${added}.`;
+            statusEl.textContent = `Stopped - ${MAX_CONSECUTIVE_404} consecutive items not found (likely past last item). Added ${added}.`;
             console.debug('logger: stopping after consecutive 404s', { lastId: id, consecutive404, added, skipped });
             break;
           }
@@ -781,7 +800,7 @@
       running = true;
       abortController = new AbortController();
       startBtn.textContent = 'Stop logging';
-      status.textContent = `Starting logging — ${pending.length} items available${statusMsg}.`;
+      status.textContent = `Starting logging - ${pending.length} items available${statusMsg}.`;
 
       const result = await runFetchLoop(pending, ctx, abortController.signal, status, {
         mode: 'append',
@@ -791,7 +810,7 @@
       running = false;
       abortController = null;
       startBtn.textContent = 'Start logging';
-      status.textContent = `Logging completed — added ${result.added} items.`;
+      status.textContent = `Logging completed - added ${result.added} items.`;
     });
 
     // --- Export ---
@@ -929,7 +948,7 @@
       updateDbRunning = false;
       updateDbAbortController = null;
       updateDbStartBtn.textContent = 'Update database';
-      updateDbStatus.textContent = `Database update completed — updated ${result.added}, skipped ${result.skipped}, errors ${result.errors}.`;
+      updateDbStatus.textContent = `Database update completed - updated ${result.added}, skipped ${result.skipped}, errors ${result.errors}.`;
     });
 
     // --- Update imported IDs ---
@@ -977,7 +996,7 @@
         updateImportedRunning = false;
         updateImportedAbortController = null;
         updateImportedStartBtn.textContent = 'Update imported IDs';
-        updateImportedStatus.textContent = `Imported ID update completed — updated ${result.added}, skipped ${result.skipped}, errors ${result.errors}.`;
+        updateImportedStatus.textContent = `Imported ID update completed - updated ${result.added}, skipped ${result.skipped}, errors ${result.errors}.`;
       });
     }
 

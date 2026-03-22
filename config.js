@@ -53,8 +53,14 @@
     //
     // The optimizer will then use the returned minLevel/price/power values
     // to decide which items are best for a given level and gold budget.
-    // Here we generate the range 1–175142 inclusive.
-    ITEM_IDS: Array.from({ length: 175142 }, (_, i) => i + 1),
+    // Lazy range - generated on first access to avoid ~500KB upfront allocation.
+    // Returns an array of integers from 1 to 175142 inclusive.
+    get ITEM_IDS() {
+      const ids = Array.from({ length: 175142 }, (_, i) => i + 1);
+      // Replace getter with cached value after first access
+      Object.defineProperty(this, 'ITEM_IDS', { value: ids, writable: false, configurable: false });
+      return ids;
+    },
 
     // When resolving items by ID, app.js will construct the URL from
     // ITEM_BY_ID_ENDPOINT. For SimpleMMO this matches the documented endpoint:

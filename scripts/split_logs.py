@@ -16,8 +16,13 @@ def entry_to_compact_bytes(entry):
 def compact_array_size(entries):
     if not entries:
         return 2
-    body = b",".join(entry_to_compact_bytes(e) for e in entries)
-    return len(body) + 2
+    # Sum pre-encoded byte lengths + commas + brackets instead of joining
+    total = 2  # for [ and ]
+    for i, e in enumerate(entries):
+        total += len(entry_to_compact_bytes(e))
+        if i > 0:
+            total += 1  # comma separator
+    return total
 
 
 def write_json_array(path: Path, entries):

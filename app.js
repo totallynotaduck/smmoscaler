@@ -64,8 +64,40 @@
     let sortBy = 'power'; // 'power' or 'value'
     let budgetCapEnabled = false;
 
+    // Normalized item cache - avoids re-normalizing 175K items on every search
+    let cachedNormalizedItems = null;
+    let cachedLogsRef = null;
+    let cachedIncludeCrit = null;
+    let cachedDefWeight = null;
+    let cachedLevel = null;
+
+    function getNormalizedItems(rawLogs, includeCritBonus, level, defWeight) {
+      if (
+        cachedNormalizedItems &&
+        cachedLogsRef === rawLogs &&
+        cachedIncludeCrit === includeCritBonus &&
+        cachedDefWeight === defWeight &&
+        cachedLevel === level
+      ) {
+        return cachedNormalizedItems;
+      }
+      cachedNormalizedItems = [];
+      for (let i = 0; i < rawLogs.length; i++) {
+        const l = rawLogs[i];
+        if (l.item) {
+          const normalized = normalizeItem(l.item, includeCritBonus, level, defWeight, l.id);
+          if (normalized) cachedNormalizedItems.push(normalized);
+        }
+      }
+      cachedLogsRef = rawLogs;
+      cachedIncludeCrit = includeCritBonus;
+      cachedDefWeight = defWeight;
+      cachedLevel = level;
+      return cachedNormalizedItems;
+    }
+
     if (CONFIG) configStatus.textContent = 'Config loaded';
-    else configStatus.textContent = 'Config missing — using demo data';
+    else configStatus.textContent = 'Config missing - using demo data';
 
     // Debug: log config and initial state
     console.log('SMMO Scaler initialized', { 
@@ -204,6 +236,9 @@
           }
         }
 
+        // Pareto frontier pruning: keep only states where no other state
+        // has both lower cost AND higher score (strictly dominated).
+        // Sort by cost ascending, then score descending for frontier extraction.
         nextStates.sort((a, b) => {
           if (a.cost !== b.cost) return a.cost - b.cost;
           if (b.score !== a.score) return b.score - a.score;
@@ -219,7 +254,7 @@
           }
         }
 
-        states = pruned.slice(-5000);
+        states = pruned.length > 5000 ? pruned.slice(-5000) : pruned;
       }
 
       if (states.length === 0) return [];
@@ -263,28 +298,24 @@
       const defWeight = getDefWeight();
 
       if (rawLogs.length > 0) {
-        items = rawLogs
-          .map(l => l.item ? normalizeItem(l.item, includeCritBonus, level, defWeight, l.id) : null)
-          .filter(it => it !== null);
+        items = getNormalizedItems(rawLogs, includeCritBonus, level, defWeight);
         configStatus.textContent = `Using ${items.length} items from logs (${rawLogs.length} total entries)`;
       } else {
         items = (CONFIG && CONFIG.DEMO_ITEMS) ? CONFIG.DEMO_ITEMS : [];
       }
 
       const minPower = Number(minPowerInput.value) || 0;
-      const usable = items.filter(it => {
-        if (!it || !it.id) return false;
+      const usable = [];
+      for (const it of items) {
+        if (!it || !it.id) continue;
         const cost = it.marketLow != null ? toFiniteNumber(it.marketLow, null) : (it.price != null ? toFiniteNumber(it.price, null) : null);
-        if (cost == null) return false;
-        if (it.slot === 'Food' || it.slot === 'Other') return false;
-        return (it.minLevel || 0) <= level && cost <= gold && it.power >= minPower;
-      });
-
-      usable.forEach(it => {
-        const cost = it.marketLow != null ? toFiniteNumber(it.marketLow, 0) : toFiniteNumber(it.price, 0);
+        if (cost == null) continue;
+        if (it.slot === 'Food' || it.slot === 'Other') continue;
+        if ((it.minLevel || 0) > level || cost > gold || it.power < minPower) continue;
         it.cost = cost;
         it.bestValue = cost > 0 ? it.power / cost : 0;
-      });
+        usable.push(it);
+      }
 
       const unavailableItems = usable.filter(it => (it.cost || 0) === 0);
       const availableItems = usable.filter(it => (it.cost || 0) > 0);
@@ -331,9 +362,9 @@
         errorEl.hidden = true;
         errorEl.textContent = '';
       }
-      totalCost.textContent = '—';
-      totalPower.textContent = '—';
-      slotsFilled.textContent = '—';
+      totalCost.textContent = '-';
+      totalPower.textContent = '-';
+      slotsFilled.textContent = '-';
       statusEl.textContent = 'Ready.';
       updateDefWeightLabel();
     }
@@ -392,7 +423,7 @@
     }
 
     function formatItemStats(item) {
-      if (!item || !Array.isArray(item.stats) || item.stats.length === 0) return 'Stats: —';
+      if (!item || !Array.isArray(item.stats) || item.stats.length === 0) return 'Stats: -';
       const parts = item.stats.map(stat => `${getStatDisplayName(stat.key)} ${formatStatValue(stat.value)}`);
       return `Stats: ${parts.join(' • ')}`;
     }
@@ -403,46 +434,43 @@
     }
 
     function sortSlotItems(slotItems, slotName) {
+      const isAvatarSlot = slotName === 'Avatar' || slotName === 'Item Sprite';
+      const isToolSlot = TOOL_SLOT_KEYS.has(slotName.toLowerCase());
+      const isCollectable = slotName === 'Collectable';
+      const sortByPower = sortBy === 'power';
+
+      // Pre-compute custom tags for Collectable sort to avoid repeated toLowerCase/trim in comparator
+      if (isCollectable) {
+        for (const it of slotItems) {
+          it._sortTag = normalizeCustomTag(it.customItemTag ?? it.custom_item);
+        }
+      }
+
       slotItems.sort((a, b) => {
-        if (slotName === 'Avatar' || slotName === 'Item Sprite') {
-          const loggedA = Number(a.loggedItemId ?? a.id ?? 0);
-          const loggedB = Number(b.loggedItemId ?? b.id ?? 0);
-          return loggedB - loggedA;
+        if (isAvatarSlot) {
+          return Number(b.loggedItemId ?? b.id ?? 0) - Number(a.loggedItemId ?? a.id ?? 0);
         }
 
-        // Special sorting for tool types: Wood Axe, Fishing Rod, Pickaxe, Shovel
-        if (TOOL_SLOT_KEYS.has(slotName.toLowerCase())) {
-          const rarityA = RARITY_ORDER[a.rarity] || 0;
-          const rarityB = RARITY_ORDER[b.rarity] || 0;
-          
-          if (rarityB !== rarityA) return rarityB - rarityA;
-          
-          // If same rarity, sort by power descending
-          const powerA = a.power || 0;
-          const powerB = b.power || 0;
-          if (powerB !== powerA) return powerB - powerA;
-          
-          // If same power, sort by cost ascending
-          const costA = a.cost || 0;
-          const costB = b.cost || 0;
-          if (costA !== costB) return costA - costB;
-          
-          // Final tiebreaker: by ID
+        if (isToolSlot) {
+          const rarityDiff = (RARITY_ORDER[b.rarity] || 0) - (RARITY_ORDER[a.rarity] || 0);
+          if (rarityDiff !== 0) return rarityDiff;
+          const powerDiff = (b.power || 0) - (a.power || 0);
+          if (powerDiff !== 0) return powerDiff;
+          const costDiff = (a.cost || 0) - (b.cost || 0);
+          if (costDiff !== 0) return costDiff;
           return Number(a.id || 0) - Number(b.id || 0);
         }
 
-        const primaryA = sortBy === 'power' ? (a.power || 0) : (a.bestValue || 0);
-        const primaryB = sortBy === 'power' ? (b.power || 0) : (b.bestValue || 0);
+        const primaryA = sortByPower ? (a.power || 0) : (a.bestValue || 0);
+        const primaryB = sortByPower ? (b.power || 0) : (b.bestValue || 0);
         if (primaryB !== primaryA) return primaryB - primaryA;
 
-        const secondaryA = sortBy === 'power' ? (a.bestValue || 0) : (a.power || 0);
-        const secondaryB = sortBy === 'power' ? (b.bestValue || 0) : (b.power || 0);
+        const secondaryA = sortByPower ? (a.bestValue || 0) : (a.power || 0);
+        const secondaryB = sortByPower ? (b.bestValue || 0) : (b.power || 0);
         if (secondaryB !== secondaryA) return secondaryB - secondaryA;
 
-        if (slotName === 'Collectable') {
-          const tagA = normalizeCustomTag(a.customItemTag ?? a.custom_item);
-          const tagB = normalizeCustomTag(b.customItemTag ?? b.custom_item);
-          const tagCompare = tagA.localeCompare(tagB, undefined, { numeric: true, sensitivity: 'base' });
+        if (isCollectable) {
+          const tagCompare = a._sortTag.localeCompare(b._sortTag, undefined, { numeric: true, sensitivity: 'base' });
           if (tagCompare !== 0) return tagCompare;
         }
 
@@ -614,7 +642,6 @@
 
     function renderInterestingItems(availableItems, unavailableItems = []) {
       try {
-        const interestingItemsList = qs('interestingItemsList');
         interestingItemsList.innerHTML = '';
         
         // Combine available and unavailable interesting items
@@ -666,7 +693,7 @@
 
       const textContainer = document.createElement('div');
       textContainer.className = 'itemText';
-      const valueDisplay = (it.bestValue != null) ? it.bestValue.toFixed(4) : '—';
+      const valueDisplay = (it.bestValue != null) ? it.bestValue.toFixed(4) : '-';
       const link = document.createElement('a');
       link.href = `https://web.simple-mmo.com/item/inspect/${it.id}`;
       link.textContent = it.name;
